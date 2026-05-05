@@ -39,6 +39,12 @@
             android:label="Cài đặt"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <activity
+            android:name=".ProductsActivity"
+            android:exported="false"
+            android:label="Sản phẩm"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <service
             android:name=".WebMonitorService"
             android:exported="false"

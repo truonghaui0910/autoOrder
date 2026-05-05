@@ -16,15 +16,20 @@ import androidx.appcompat.app.AppCompatActivity
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var txtViewMode: TextView
+    private lateinit var txtProductsCount: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
         txtViewMode = findViewById(R.id.txtViewMode)
+        txtProductsCount = findViewById(R.id.txtProductsCount)
         refreshSummaries()
 
         findViewById<View>(R.id.rowViewMode).setOnClickListener { showViewModeDialog() }
+        findViewById<View>(R.id.rowProducts).setOnClickListener {
+            startActivity(Intent(this, ProductsActivity::class.java))
+        }
         findViewById<View>(R.id.rowOpenInbox).setOnClickListener {
             startActivity(Intent(this, MessagesActivity::class.java))
         }
@@ -45,11 +50,18 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnSettings).setOnClickListener { /* đang ở đây */ }
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshSummaries()
+    }
+
     private fun refreshSummaries() {
         txtViewMode.text = if (AppPrefs.isMobile(this))
             "Mobile view (Giao diện điện thoại)"
         else
             "Web view (Desktop, 3 cột)"
+        val count = ShopDb(this).listProducts(activeOnly = false).size
+        txtProductsCount.text = "$count sản phẩm"
     }
 
     private fun showViewModeDialog() {

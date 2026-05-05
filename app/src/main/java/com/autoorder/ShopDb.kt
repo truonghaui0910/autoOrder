@@ -1,0 +1,258 @@
+package com.autoorder
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+
+data class Product(
+    val id: Long = 0,
+    val category: String,
+    val name: String,
+    val price: Int,
+    val note: String = "",
+    val active: Boolean = true,
+    val sortOrder: Int = 0
+)
+
+data class OrderItem(
+    val productId: Long?,
+    val productName: String,
+    val quantity: Double,
+    val unitPrice: Int,
+    val note: String = "",
+    val rawText: String = ""
+) {
+    val lineTotal: Long get() = Math.round(quantity * unitPrice)
+}
+
+data class OrderRecord(
+    val id: Long = 0,
+    val createdAt: Long,
+    val orderDate: String,
+    val convName: String,
+    val senderName: String,
+    val phone: String,
+    val address: String,
+    val itemsText: String,
+    val rawJson: String,
+    val totalAmount: Long,
+    val note: String = ""
+)
+
+class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, null, DB_VERSION) {
+
+    companion object {
+        const val DB_NAME = "shop.db"
+        const val DB_VERSION = 1
+        const val T_PROD = "products"
+        const val T_ORD = "orders"
+        const val T_OI = "order_items"
+    }
+
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE $T_PROD (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                name TEXT NOT NULL,
+                price INTEGER NOT NULL,
+                note TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX idx_prod_active ON $T_PROD(active)")
+        db.execSQL("CREATE INDEX idx_prod_cat ON $T_PROD(category)")
+
+        db.execSQL(
+            """
+            CREATE TABLE $T_ORD (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at INTEGER NOT NULL,
+                order_date TEXT NOT NULL,
+                conv_name TEXT,
+                sender_name TEXT,
+                phone TEXT,
+                address TEXT,
+                items_text TEXT,
+                raw_json TEXT,
+                total_amount INTEGER NOT NULL DEFAULT 0,
+                note TEXT
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX idx_ord_date ON $T_ORD(order_date)")
+        db.execSQL("CREATE INDEX idx_ord_phone ON $T_ORD(phone)")
+
+        db.execSQL(
+            """
+            CREATE TABLE $T_OI (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                product_id INTEGER,
+                product_name TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                unit_price INTEGER NOT NULL,
+                line_total INTEGER NOT NULL,
+                note TEXT,
+                raw_text TEXT,
+                FOREIGN KEY(order_id) REFERENCES $T_ORD(id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX idx_oi_order ON $T_OI(order_id)")
+        db.execSQL("CREATE INDEX idx_oi_product ON $T_OI(product_id)")
+
+        seedProducts(db)
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // dev: schema mới chưa migrate, để trống
+    }
+
+    private fun seedProducts(db: SQLiteDatabase) {
+        val now = System.currentTimeMillis()
+        data class S(val cat: String, val name: String, val price: Int, val note: String)
+        val seed = listOf(
+            S("TRÀ", "Nhiệt đới", 30000, ""),
+            S("TRÀ", "Dưa lưới", 35000, ""),
+            S("TRÀ", "Dâu tằm", 35000, ""),
+            S("TRÀ", "Atiso chua ngọt", 35000, ""),
+            S("TRÀ", "Đác cam chanh", 40000, ""),
+            S("TRÀ", "Mãng cầu", 40000, ""),
+            S("TRÀ", "Mãng cầu mix dâu tằm", 40000, ""),
+            S("TRÀ", "Hũ đác dâu tằm", 10000, ""),
+            S("ĂN VẶT", "Chân gà sốt thái S", 60000, "6-7 chân"),
+            S("ĂN VẶT", "Chân gà sốt thái M", 90000, "9-10 chân"),
+            S("ĂN VẶT", "Chân gà sốt thái L", 130000, "13-14 chân"),
+            S("ĂN VẶT", "Combo trải nghiệm chân trứng", 60000, "4-5 chân + 100g trứng"),
+            S("ĂN VẶT", "Trứng non sốt thái", 50000, "250g"),
+            S("ĂN VẶT", "Gà ủ muối 1/2", 150000, ""),
+            S("ĂN VẶT", "Gà ủ muối 1 con", 280000, "")
+        )
+        seed.forEachIndexed { idx, s ->
+            val cv = ContentValues().apply {
+                put("category", s.cat)
+                put("name", s.name)
+                put("price", s.price)
+                put("note", s.note)
+                put("active", 1)
+                put("sort_order", idx)
+                put("created_at", now)
+                put("updated_at", now)
+            }
+            db.insert(T_PROD, null, cv)
+        }
+    }
+
+    fun listProducts(activeOnly: Boolean = false): List<Product> {
+        val sql = StringBuilder(
+            "SELECT id, category, name, price, note, active, sort_order FROM $T_PROD"
+        )
+        if (activeOnly) sql.append(" WHERE active = 1")
+        sql.append(" ORDER BY category, sort_order, id")
+        val out = ArrayList<Product>()
+        readableDatabase.rawQuery(sql.toString(), null).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    Product(
+                        id = c.getLong(0),
+                        category = c.getString(1) ?: "",
+                        name = c.getString(2) ?: "",
+                        price = c.getInt(3),
+                        note = c.getString(4) ?: "",
+                        active = c.getInt(5) == 1,
+                        sortOrder = c.getInt(6)
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    fun getProduct(id: Long): Product? {
+        readableDatabase.rawQuery(
+            "SELECT id, category, name, price, note, active, sort_order FROM $T_PROD WHERE id = ?",
+            arrayOf(id.toString())
+        ).use { c ->
+            if (c.moveToFirst()) {
+                return Product(
+                    id = c.getLong(0),
+                    category = c.getString(1) ?: "",
+                    name = c.getString(2) ?: "",
+                    price = c.getInt(3),
+                    note = c.getString(4) ?: "",
+                    active = c.getInt(5) == 1,
+                    sortOrder = c.getInt(6)
+                )
+            }
+        }
+        return null
+    }
+
+    fun upsertProduct(p: Product): Long {
+        val now = System.currentTimeMillis()
+        val cv = ContentValues().apply {
+            put("category", p.category)
+            put("name", p.name)
+            put("price", p.price)
+            put("note", p.note)
+            put("active", if (p.active) 1 else 0)
+            put("sort_order", p.sortOrder)
+            put("updated_at", now)
+        }
+        return if (p.id > 0) {
+            writableDatabase.update(T_PROD, cv, "id = ?", arrayOf(p.id.toString()))
+            p.id
+        } else {
+            cv.put("created_at", now)
+            writableDatabase.insert(T_PROD, null, cv)
+        }
+    }
+
+    fun deleteProduct(id: Long) {
+        writableDatabase.delete(T_PROD, "id = ?", arrayOf(id.toString()))
+    }
+
+    fun insertOrder(order: OrderRecord, items: List<OrderItem>): Long {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val cv = ContentValues().apply {
+                put("created_at", order.createdAt)
+                put("order_date", order.orderDate)
+                put("conv_name", order.convName)
+                put("sender_name", order.senderName)
+                put("phone", order.phone)
+                put("address", order.address)
+                put("items_text", order.itemsText)
+                put("raw_json", order.rawJson)
+                put("total_amount", order.totalAmount)
+                put("note", order.note)
+            }
+            val orderId = db.insert(T_ORD, null, cv)
+            items.forEach { oi ->
+                val ic = ContentValues().apply {
+                    put("order_id", orderId)
+                    if (oi.productId != null) put("product_id", oi.productId) else putNull("product_id")
+                    put("product_name", oi.productName)
+                    put("quantity", oi.quantity)
+                    put("unit_price", oi.unitPrice)
+                    put("line_total", oi.lineTotal)
+                    put("note", oi.note)
+                    put("raw_text", oi.rawText)
+                }
+                db.insert(T_OI, null, ic)
+            }
+            db.setTransactionSuccessful()
+            return orderId
+        } finally {
+            db.endTransaction()
+        }
+    }
+}
