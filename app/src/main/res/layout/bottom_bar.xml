@@ -5,8 +5,8 @@
     android:orientation="horizontal"
     android:background="@drawable/bg_bottom_bar"
     android:elevation="12dp"
-    android:paddingTop="6dp"
-    android:paddingBottom="8dp"
+    android:paddingTop="2dp"
+    android:paddingBottom="3dp"
     android:weightSum="5">
 
     <LinearLayout
@@ -16,14 +16,14 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
-        android:paddingVertical="6dp"
+        android:paddingVertical="3dp"
         android:background="@drawable/bg_nav_item"
         android:clickable="true"
         android:focusable="true">
 
         <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:src="@drawable/ic_message"
             android:tint="#1976D2"
             android:contentDescription="WebView" />
@@ -31,7 +31,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="1dp"
             android:text="Chat"
             android:textColor="#37474F"
             android:textSize="10sp" />
@@ -44,14 +44,14 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
-        android:paddingVertical="6dp"
+        android:paddingVertical="3dp"
         android:background="@drawable/bg_nav_item"
         android:clickable="true"
         android:focusable="true">
 
         <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:src="@drawable/ic_refresh"
             android:tint="#1976D2"
             android:contentDescription="Tải lại" />
@@ -59,7 +59,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="1dp"
             android:text="Tải lại"
             android:textColor="#37474F"
             android:textSize="10sp" />
@@ -72,14 +72,14 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
-        android:paddingVertical="6dp"
+        android:paddingVertical="3dp"
         android:background="@drawable/bg_nav_item"
         android:clickable="true"
         android:focusable="true">
 
         <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:src="@drawable/ic_scan"
             android:tint="#1976D2"
             android:contentDescription="Quét" />
@@ -87,7 +87,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="1dp"
             android:text="Quét"
             android:textColor="#37474F"
             android:textSize="10sp" />
@@ -100,14 +100,14 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
-        android:paddingVertical="6dp"
+        android:paddingVertical="3dp"
         android:background="@drawable/bg_nav_item"
         android:clickable="true"
         android:focusable="true">
 
         <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:src="@drawable/ic_inbox"
             android:tint="#1976D2"
             android:contentDescription="Tin" />
@@ -116,7 +116,7 @@
             android:id="@+id/counter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="1dp"
             android:text="0 tin"
             android:textColor="#1976D2"
             android:textSize="10sp"
@@ -130,14 +130,14 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
-        android:paddingVertical="6dp"
+        android:paddingVertical="3dp"
         android:background="@drawable/bg_nav_item"
         android:clickable="true"
         android:focusable="true">
 
         <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:src="@drawable/ic_settings"
             android:tint="#1976D2"
             android:contentDescription="Cài đặt" />
@@ -145,7 +145,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="1dp"
             android:text="Cài đặt"
             android:textColor="#37474F"
             android:textSize="10sp" />

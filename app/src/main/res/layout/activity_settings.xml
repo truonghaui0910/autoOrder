@@ -1,75 +1,234 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FAFAFA">
+    android:background="#ECEFF1">
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Cài đặt"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:textColor="#1976D2"
-        android:padding="16dp"
-        android:background="#FFFFFF"
-        android:elevation="2dp" />
+        android:orientation="vertical"
+        android:background="@drawable/bg_settings_header"
+        android:paddingTop="14dp"
+        android:paddingBottom="18dp"
+        android:paddingHorizontal="16dp"
+        android:elevation="2dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Cài đặt"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Tuỳ chỉnh app autoOrder"
+            android:textSize="13sp"
+            android:textColor="#E3F2FD" />
+    </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingHorizontal="12dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="20dp">
 
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Chế độ hiển thị WebView"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:textColor="#37474F"
-                android:layout_marginBottom="8dp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_settings_card"
+                android:padding="14dp"
+                android:elevation="1dp">
+
+                <ImageView
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@drawable/ic_launcher"
+                    android:background="@drawable/bg_icon_circle"
+                    android:padding="8dp"
+                    android:contentDescription="App icon" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="14dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="autoOrder"
+                        android:textSize="17sp"
+                        android:textStyle="bold"
+                        android:textColor="#212121" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Trích xuất đơn hàng từ chat"
+                        android:textSize="12sp"
+                        android:textColor="#78909C" />
+                </LinearLayout>
+            </LinearLayout>
 
             <TextView
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Chọn cách Zalo Web hiển thị trong app. Đổi cài đặt sẽ tải lại WebView."
+                android:layout_marginTop="18dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginBottom="8dp"
+                android:text="WebView"
                 android:textSize="12sp"
-                android:textColor="#78909C"
-                android:layout_marginBottom="12dp" />
+                android:textStyle="bold"
+                android:textColor="#607D8B"
+                android:letterSpacing="0.05" />
 
-            <RadioGroup
-                android:id="@+id/groupViewMode"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:background="@drawable/bg_settings_card"
+                android:elevation="1dp">
 
-                <RadioButton
-                    android:id="@+id/rbWeb"
+                <LinearLayout
+                    android:id="@+id/rowViewMode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:padding="12dp"
-                    android:text="Web view (Desktop, 3 cột)"
-                    android:textSize="15sp"
-                    android:textColor="#212121"
-                    android:buttonTint="#1976D2" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="14dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?android:attr/selectableItemBackground">
 
-                <RadioButton
-                    android:id="@+id/rbMobile"
+                    <ImageView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@drawable/ic_view_mode"
+                        android:background="@drawable/bg_icon_circle"
+                        android:padding="7dp"
+                        android:contentDescription="Chế độ hiển thị" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="14dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Chế độ hiển thị"
+                            android:textSize="15sp"
+                            android:textColor="#212121" />
+
+                        <TextView
+                            android:id="@+id/txtViewMode"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textSize="12sp"
+                            android:textColor="#78909C"
+                            android:singleLine="true"
+                            android:ellipsize="end"
+                            tools:text="Web view (Desktop)" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:contentDescription="Mở" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginBottom="8dp"
+                android:text="Dữ liệu"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#607D8B"
+                android:letterSpacing="0.05" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_settings_card"
+                android:elevation="1dp">
+
+                <LinearLayout
+                    android:id="@+id/rowOpenInbox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:padding="12dp"
-                    android:text="Mobile view (Giao diện điện thoại)"
-                    android:textSize="15sp"
-                    android:textColor="#212121"
-                    android:buttonTint="#1976D2" />
-            </RadioGroup>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="14dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?android:attr/selectableItemBackground">
+
+                    <ImageView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@drawable/ic_database"
+                        android:background="@drawable/bg_icon_circle"
+                        android:padding="7dp"
+                        android:contentDescription="DB" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="14dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Tin nhắn đã lưu"
+                            android:textSize="15sp"
+                            android:textColor="#212121" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Xem dữ liệu trong SQLite"
+                            android:textSize="12sp"
+                            android:textColor="#78909C" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:contentDescription="Mở" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 

@@ -2,4 +2,33 @@
 <resources>
     <style name="Theme.AutoOrder" parent="Theme.Material3.DayNight.NoActionBar">
     </style>
+
+    <style name="TransparentDialog" parent="Theme.AppCompat.Light.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimAmount">0.55</item>
+    </style>
+
+    <style name="OrderFieldLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <item name="android:layout_marginBottom">6dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#455A64</item>
+        <item name="android:letterSpacing">0.03</item>
+    </style>
+
+    <style name="OrderFieldInput">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/bg_input_field</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:paddingVertical">10dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">#212121</item>
+        <item name="android:textColorHint">#90A4AE</item>
+    </style>
 </resources>

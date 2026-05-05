@@ -1,28 +1,32 @@
 package com.autoorder
 
+import android.app.Dialog
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.View
-import android.widget.RadioGroup
+import android.view.ViewGroup
+import android.view.Window
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class SettingsActivity : AppCompatActivity() {
 
+    private lateinit var txtViewMode: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        val group = findViewById<RadioGroup>(R.id.groupViewMode)
-        val initial = AppPrefs.getViewMode(this)
-        group.check(if (initial == AppPrefs.MODE_MOBILE) R.id.rbMobile else R.id.rbWeb)
+        txtViewMode = findViewById(R.id.txtViewMode)
+        refreshSummaries()
 
-        group.setOnCheckedChangeListener { _, checkedId ->
-            val mode = if (checkedId == R.id.rbMobile) AppPrefs.MODE_MOBILE else AppPrefs.MODE_WEB
-            if (mode != AppPrefs.getViewMode(this)) {
-                AppPrefs.setViewMode(this, mode)
-                Toast.makeText(this, "Đã lưu cài đặt", Toast.LENGTH_SHORT).show()
-            }
+        findViewById<View>(R.id.rowViewMode).setOnClickListener { showViewModeDialog() }
+        findViewById<View>(R.id.rowOpenInbox).setOnClickListener {
+            startActivity(Intent(this, MessagesActivity::class.java))
         }
 
         findViewById<View>(R.id.btnHome).setOnClickListener {
@@ -39,5 +43,62 @@ class SettingsActivity : AppCompatActivity() {
             finish()
         }
         findViewById<View>(R.id.btnSettings).setOnClickListener { /* đang ở đây */ }
+    }
+
+    private fun refreshSummaries() {
+        txtViewMode.text = if (AppPrefs.isMobile(this))
+            "Mobile view (Giao diện điện thoại)"
+        else
+            "Web view (Desktop, 3 cột)"
+    }
+
+    private fun showViewModeDialog() {
+        val dialog = Dialog(this, R.style.TransparentDialog)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setContentView(R.layout.dialog_view_mode)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(0x00000000))
+            val w = (resources.displayMetrics.widthPixels * 0.92).toInt()
+            setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val optWeb = dialog.findViewById<LinearLayout>(R.id.optWeb)
+        val optMobile = dialog.findViewById<LinearLayout>(R.id.optMobile)
+        val iconWeb = dialog.findViewById<ImageView>(R.id.iconWeb)
+        val iconMobile = dialog.findViewById<ImageView>(R.id.iconMobile)
+
+        fun render() {
+            val isMobile = AppPrefs.isMobile(this)
+            optWeb.isSelected = !isMobile
+            optMobile.isSelected = isMobile
+            iconWeb.setImageResource(
+                if (!isMobile) R.drawable.ic_check_circle else R.drawable.ic_radio_off
+            )
+            iconMobile.setImageResource(
+                if (isMobile) R.drawable.ic_check_circle else R.drawable.ic_radio_off
+            )
+        }
+        render()
+
+        optWeb.setOnClickListener {
+            if (AppPrefs.getViewMode(this) != AppPrefs.MODE_WEB) {
+                AppPrefs.setViewMode(this, AppPrefs.MODE_WEB)
+                Toast.makeText(this, "Đã chuyển sang Web view", Toast.LENGTH_SHORT).show()
+            }
+            refreshSummaries()
+            render()
+        }
+        optMobile.setOnClickListener {
+            if (AppPrefs.getViewMode(this) != AppPrefs.MODE_MOBILE) {
+                AppPrefs.setViewMode(this, AppPrefs.MODE_MOBILE)
+                Toast.makeText(this, "Đã chuyển sang Mobile view", Toast.LENGTH_SHORT).show()
+            }
+            refreshSummaries()
+            render()
+        }
+
+        dialog.findViewById<View>(R.id.btnClose).setOnClickListener { dialog.dismiss() }
+        dialog.findViewById<View>(R.id.btnDismiss).setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 }

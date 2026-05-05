@@ -1,16 +1,18 @@
 package com.autoorder
 
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
+import android.graphics.drawable.ColorDrawable
 import android.os.Handler
 import android.os.Looper
-import android.text.InputType
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.view.Window
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -198,75 +200,55 @@ object OrderExtractor {
     }
 
     private fun showPopup(ctx: Context, order: Order) {
-        val pad = (16 * ctx.resources.displayMetrics.density).toInt()
-        val container = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, 0)
+        val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_order, null, false)
+        val etName = view.findViewById<EditText>(R.id.etName)
+        val etItems = view.findViewById<EditText>(R.id.etItems)
+        val etAddr = view.findViewById<EditText>(R.id.etAddr)
+        val etPhone = view.findViewById<EditText>(R.id.etPhone)
+        etName.setText(order.senderName)
+        etItems.setText(order.items)
+        etAddr.setText(order.address)
+        etPhone.setText(order.phone)
+
+        val dialog = Dialog(ctx, R.style.TransparentDialog)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setContentView(view)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(0x00000000))
+            val w = (ctx.resources.displayMetrics.widthPixels * 0.94).toInt()
+            setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
-        fun addField(label: String, value: String, multiline: Boolean): EditText {
-            val tv = TextView(ctx).apply {
-                text = label
-                setPadding(0, pad / 2, 0, 4)
+        view.findViewById<Button>(R.id.btnCancel).setOnClickListener { dialog.dismiss() }
+        view.findViewById<android.view.View>(R.id.btnDismiss).setOnClickListener { dialog.dismiss() }
+
+        view.findViewById<Button>(R.id.btnCopy).setOnClickListener {
+            val text = buildString {
+                append("Tên: ").append(etName.text).append("\n\n")
+                append(etItems.text).append("\n\n")
+                append("SĐT: ").append(etPhone.text).append('\n')
+                append("Địa chỉ: ").append(etAddr.text)
             }
-            val et = EditText(ctx).apply {
-                setText(value)
-                if (multiline) {
-                    inputType = InputType.TYPE_CLASS_TEXT or
-                        InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                        InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-                    isSingleLine = false
-                    minLines = 2
-                    setHorizontallyScrolling(false)
-                }
-            }
-            container.addView(tv)
-            container.addView(
-                et,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
+            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("Đơn hàng", text))
+            android.widget.Toast.makeText(
+                ctx, "Đã copy đơn hàng", android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        view.findViewById<Button>(R.id.btnSave).setOnClickListener {
+            Log.i(
+                TAG,
+                "ORDER name='${etName.text}' phone='${etPhone.text}' " +
+                    "addr='${etAddr.text}' items='${etItems.text}'"
             )
-            return et
+            android.widget.Toast.makeText(
+                ctx, "Đã lưu đơn hàng", android.widget.Toast.LENGTH_SHORT
+            ).show()
+            dialog.dismiss()
         }
 
-        val etName = addField("Tên người gửi", order.senderName, false)
-        val etItems = addField("Các món order", order.items, true)
-        val etAddr = addField("Địa chỉ nhận hàng", order.address, true)
-        val etPhone = addField("Số điện thoại", order.phone, false).apply {
-            inputType = InputType.TYPE_CLASS_PHONE
-        }
-
-        val scroll = ScrollView(ctx).apply { addView(container) }
-
-        val dlg = AlertDialog.Builder(ctx)
-            .setTitle("Đơn hàng trích xuất")
-            .setView(scroll)
-            .setPositiveButton("Lưu") { _, _ ->
-                Log.i(
-                    TAG,
-                    "ORDER name='${etName.text}' phone='${etPhone.text}' " +
-                        "addr='${etAddr.text}' items='${etItems.text}'"
-                )
-            }
-            .setNeutralButton("Copy", null)
-            .setNegativeButton("Hủy", null)
-            .create()
-        dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                val text = buildString {
-                    append("Tên: ").append(etName.text).append("\n\n")
-                    append(etItems.text).append("\n\n")
-                    append("SĐT: ").append(etPhone.text).append('\n')
-                    append("Địa chỉ: ").append(etAddr.text)
-                }
-                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
-                    as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("Đơn hàng", text))
-                android.widget.Toast.makeText(ctx, "Đã copy đơn hàng", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
-        dlg.show()
+        dialog.show()
     }
 }
