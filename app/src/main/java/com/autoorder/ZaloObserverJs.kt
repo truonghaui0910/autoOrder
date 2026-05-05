@@ -6,13 +6,15 @@ internal const val ZALO_OBSERVER_JS = """
   window.__autoOrderInstalled = true;
 
   try {
-    var vp = document.querySelector('meta[name=viewport]');
-    if (!vp) {
-      vp = document.createElement('meta');
-      vp.name = 'viewport';
-      document.head.appendChild(vp);
+    if (!window.__autoOrderMobileView) {
+      var vp = document.querySelector('meta[name=viewport]');
+      if (!vp) {
+        vp = document.createElement('meta');
+        vp.name = 'viewport';
+        document.head.appendChild(vp);
+      }
+      vp.setAttribute('content', 'width=1400, initial-scale=0.25, user-scalable=yes');
     }
-    vp.setAttribute('content', 'width=1400, initial-scale=0.25, user-scalable=yes');
   } catch (e) {}
 
   function snippet(s, max) {
@@ -101,6 +103,41 @@ internal const val ZALO_OBSERVER_JS = """
     attributes: true,
     attributeFilter: ['class']
   });
+
+  window.__autoOrderExtractSelected = function() {
+    var selRel = document.querySelector('.conv-rel.selected');
+    var peerName = '';
+    if (selRel) {
+      var item = (selRel.closest && selRel.closest('.msg-item')) || selRel;
+      var nameInner = item.querySelector('.conv-item-title__name .truncate');
+      var nameEl = nameInner || item.querySelector('.conv-item-title__name');
+      peerName = nameEl ? snippet((nameEl.innerText || '').trim(), 100) : '';
+    }
+    var container = document.getElementById('messageViewScroll') ||
+                    document.getElementById('messageViewContainer');
+    if (!container) {
+      AutoOrderBridge.onConversation(peerName, '[]');
+      return;
+    }
+    var nodes = container.querySelectorAll('.chat-item');
+    var arr = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var it = nodes[i];
+      var cls = ' ' + (classOf(it) || '') + ' ';
+      var isMe = / me /.test(cls);
+      var textEl = it.querySelector('[data-component=text-container]') ||
+                   it.querySelector('.text-message__container');
+      var text = textEl ? (textEl.innerText || '').trim() : '';
+      if (!text) {
+        if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
+          text = '[hình ảnh]';
+        }
+      }
+      if (!text) continue;
+      arr.push({ from: isMe ? 'me' : 'them', text: snippet(text, 2000) });
+    }
+    AutoOrderBridge.onConversation(peerName, JSON.stringify(arr));
+  };
 
   window.__autoOrderDump = function() {
     AutoOrderBridge.onDump('dump-begin', location.href, '', '');

@@ -1,25 +1,19 @@
 package com.autoorder
 
-import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Build
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
+import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 object NewMsgNotifier {
-    const val CHANNEL_NEW = "autoorder_messages"
+    private const val TAG = "AutoOrder"
     const val CHANNEL_SERVICE = "autoorder_service"
     private const val DEDUP_WINDOW_MS = 5_000L
 
-    private val notiIdSeq = AtomicInteger(1000)
     private val recentHashes = ConcurrentHashMap<String, Long>()
 
     fun isDuplicate(animId: String, content: String): Boolean {
@@ -35,53 +29,36 @@ object NewMsgNotifier {
         return false
     }
 
+    /** Channel cho foreground service — Android 8+ bắt buộc. */
     fun ensureChannels(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(
             NotificationChannel(
-                CHANNEL_NEW, "Tin nhắn Zalo mới", NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Thông báo khi có tin nhắn 1-1 mới đến trên Zalo Web"
-                enableLights(true)
-                enableVibration(true)
-            }
-        )
-        nm.createNotificationChannel(
-            NotificationChannel(
                 CHANNEL_SERVICE, "AutoOrder nền", NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Service giữ WebView Zalo chạy nền"
+                description = "Service giữ app chạy nền"
+                setSound(null, null)
+                enableVibration(false)
             }
         )
     }
 
-    fun notifyNew(ctx: Context, senderName: String, content: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                ctx, Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) return
-        }
-        val intent = Intent(ctx, ChatWebActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pi = PendingIntent.getActivity(
-            ctx, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val title = if (senderName.isBlank()) "Tin nhắn mới" else senderName
-        val noti = NotificationCompat.Builder(ctx, CHANNEL_NEW)
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle(title)
-            .setContentText(content)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pi)
-            .build()
+    fun playPing(ctx: Context) {
         runCatching {
-            NotificationManagerCompat.from(ctx).notify(notiIdSeq.getAndIncrement(), noti)
-        }
+            val mp = MediaPlayer.create(ctx.applicationContext, R.raw.ping) ?: run {
+                Log.w(TAG, "MediaPlayer.create returned null for R.raw.ping")
+                return
+            }
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            mp.setOnCompletionListener { it.release() }
+            mp.setOnErrorListener { player, _, _ -> player.release(); true }
+            mp.start()
+        }.onFailure { Log.e(TAG, "playPing failed", it) }
     }
 }

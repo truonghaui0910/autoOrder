@@ -124,7 +124,7 @@
     </LinearLayout>
 
     <LinearLayout
-        android:id="@+id/btnDb"
+        android:id="@+id/btnSettings"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
@@ -138,15 +138,15 @@
         <ImageView
             android:layout_width="22dp"
             android:layout_height="22dp"
-            android:src="@drawable/ic_database"
+            android:src="@drawable/ic_settings"
             android:tint="#1976D2"
-            android:contentDescription="Database" />
+            android:contentDescription="Cài đặt" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
-            android:text="DB"
+            android:text="Cài đặt"
             android:textColor="#37474F"
             android:textSize="10sp" />
     </LinearLayout>

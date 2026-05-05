@@ -4,12 +4,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -31,8 +29,13 @@ class ChatWebActivity : AppCompatActivity() {
         private const val UA_DESKTOP =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        private const val UA_MOBILE =
+            "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         private const val NOTI_PERM_REQ = 1001
     }
+
+    private var currentMode: String = AppPrefs.MODE_WEB
 
     private lateinit var webView: WebView
     private lateinit var counter: TextView
@@ -51,25 +54,28 @@ class ChatWebActivity : AppCompatActivity() {
 
         NewMsgNotifier.ensureChannels(this)
         requestNotificationPermissionIfNeeded()
+        startKeepAliveService()
 
         findViewById<View>(R.id.btnHome).setOnClickListener { /* đang ở WebView */ }
         findViewById<View>(R.id.btnReload).setOnClickListener { webView.reload() }
         findViewById<View>(R.id.btnDump).setOnClickListener {
-            triggerDump()
-            Toast.makeText(this, "Đang quét DOM, xem Logcat", Toast.LENGTH_SHORT).show()
+            triggerExtractSelected()
         }
         findViewById<View>(R.id.btnInbox).setOnClickListener {
             startActivity(Intent(this, MessagesActivity::class.java))
         }
-        findViewById<View>(R.id.btnDb).setOnClickListener {
-            startActivity(Intent(this, MessagesActivity::class.java))
+        findViewById<View>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
+
+        currentMode = AppPrefs.getViewMode(this)
+        val isMobile = currentMode == AppPrefs.MODE_MOBILE
 
         with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            userAgentString = UA_DESKTOP
+            userAgentString = if (isMobile) UA_MOBILE else UA_DESKTOP
             useWideViewPort = true
             loadWithOverviewMode = true
             setSupportZoom(true)
@@ -78,7 +84,7 @@ class ChatWebActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
-        webView.setInitialScale(25)
+        if (!isMobile) webView.setInitialScale(25)
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -88,6 +94,11 @@ class ChatWebActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
                 Log.i(TAG, "===== onPageFinished: $url =====")
+                val mobileFlag = if (isMobile) "true" else "false"
+                view.evaluateJavascript(
+                    "window.__autoOrderMobileView = $mobileFlag;",
+                    null
+                )
                 view.evaluateJavascript(ZALO_OBSERVER_JS, null)
                 refreshCounter()
                 mainHandler.postDelayed({ triggerDump() }, 4000L)
@@ -96,8 +107,6 @@ class ChatWebActivity : AppCompatActivity() {
 
         webView.loadUrl(URL)
         refreshCounter()
-
-        startBackgroundServiceOrPromptOverlay()
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -111,40 +120,22 @@ class ChatWebActivity : AppCompatActivity() {
         }
     }
 
-    private fun startBackgroundServiceOrPromptOverlay() {
-        if (Settings.canDrawOverlays(this)) {
-            val svc = Intent(this, WebMonitorService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
-            else startService(svc)
-        } else {
-            Toast.makeText(
-                this,
-                "Cần cấp quyền 'Hiển thị trên ứng dụng khác' để chạy nền",
-                Toast.LENGTH_LONG
-            ).show()
-            runCatching {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                )
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Sau khi user trở về từ màn hình cấp quyền overlay, thử start lại service
-        if (Settings.canDrawOverlays(this) && !WebMonitorService.isRunning) {
-            val svc = Intent(this, WebMonitorService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
-            else startService(svc)
-        }
+    private fun startKeepAliveService() {
+        val svc = Intent(this, WebMonitorService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
+        else startService(svc)
     }
 
     private fun triggerDump() {
         webView.evaluateJavascript("window.__autoOrderDump && window.__autoOrderDump();", null)
+    }
+
+    private fun triggerExtractSelected() {
+        Toast.makeText(this, "Đang trích xuất hội thoại đang chọn...", Toast.LENGTH_SHORT).show()
+        webView.evaluateJavascript(
+            "window.__autoOrderExtractSelected && window.__autoOrderExtractSelected();",
+            null
+        )
     }
 
     private fun refreshCounter() {
@@ -154,8 +145,23 @@ class ChatWebActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // KHÔNG gọi webView.onPause() — để WebView tiếp tục chạy JS observer khi
+        // activity ở background. Chỉ resume timers cho chắc.
+        webView.resumeTimers()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView.resumeTimers()
+        if (AppPrefs.getViewMode(this) != currentMode) {
+            recreate()
+        }
+    }
+
     override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+        if (webView.canGoBack()) webView.goBack() else moveTaskToBack(true)
     }
 
     override fun onDestroy() {
@@ -174,22 +180,11 @@ class ChatWebActivity : AppCompatActivity() {
                 content = m.groupValues[2].trim()
                 m.groupValues[1].trim()
             } else senderName
-
             if (parsedSender.equals("Bạn", ignoreCase = true)) return
             if (NewMsgNotifier.isDuplicate(animId, content)) return
 
-            val effectiveSender =
-                if (parsedSender.isNotBlank() && parsedSender != "Bạn") parsedSender
-                else senderName
-
             Log.d(TAG, "NEW from='$senderName' (anim=$animId) time='$timeText' :: $content")
-            mainHandler.post {
-                NewMsgNotifier.notifyNew(
-                    this@ChatWebActivity,
-                    effectiveSender.ifBlank { senderName },
-                    content
-                )
-            }
+            mainHandler.post { NewMsgNotifier.playPing(applicationContext) }
         }
 
         @JavascriptInterface
@@ -202,6 +197,14 @@ class ChatWebActivity : AppCompatActivity() {
                 TAG,
                 "$kind self=$isSelf conv='$convName' from='$senderName' time='$timeText' :: $content"
             )
+        }
+
+        @JavascriptInterface
+        fun onConversation(peerName: String, messagesJson: String) {
+            Log.i(TAG, "EXTRACT peer='$peerName' msgs=${messagesJson.take(200)}")
+            mainHandler.post {
+                OrderExtractor.extractAndShow(this@ChatWebActivity, peerName, messagesJson)
+            }
         }
 
         @JavascriptInterface

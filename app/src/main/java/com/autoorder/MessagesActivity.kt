@@ -43,8 +43,8 @@ class MessagesActivity : AppCompatActivity() {
             Toast.makeText(this, "Quét DOM phải làm ở màn Chat", Toast.LENGTH_SHORT).show()
         }
         findViewById<View>(R.id.btnInbox).setOnClickListener { /* đang ở đây rồi */ }
-        findViewById<View>(R.id.btnDb).setOnClickListener {
-            Toast.makeText(this, "Đang ở DB", Toast.LENGTH_SHORT).show()
+        findViewById<View>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
 
         loadData()
