@@ -7,11 +7,15 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import org.json.JSONArray
 import org.json.JSONObject
@@ -45,8 +49,14 @@ object OrderExtractor {
         var address: String = "",
         var phone: String = "",
         var items: MutableList<OrderItem> = mutableListOf(),
-        var rawJson: String = ""
+        var rawJson: String = "",
+        var editedItemsText: String? = null
     )
+
+    private var pendingPeer: String? = null
+    private var pendingOrder: ParsedOrder? = null
+    private var floatingView: View? = null
+    private var floatingHost: ViewGroup? = null
 
     fun extractAndShow(ctx: Context, peerName: String, messagesJson: String) {
         if (ANTHROPIC_KEY.isBlank()) {
@@ -277,16 +287,18 @@ object OrderExtractor {
         return null
     }
 
-    private fun formatItemsText(items: List<OrderItem>): String {
+    private fun formatQty(q: Double): String =
+        if (q == q.toLong().toDouble()) q.toLong().toString() else q.toString()
+
+    private fun formatLineTotal(it: OrderItem): String =
+        if (it.unitPrice > 0) priceFormat.format(it.lineTotal) + "₫" else "(chưa map)"
+
+    private fun buildItemsText(items: List<OrderItem>): String {
         if (items.isEmpty()) return ""
         val sb = StringBuilder()
         items.forEachIndexed { idx, it ->
             if (idx > 0) sb.append('\n')
-            val qty = if (it.quantity == it.quantity.toLong().toDouble())
-                it.quantity.toLong().toString()
-            else
-                it.quantity.toString()
-            sb.append(qty).append(" x ").append(it.productName)
+            sb.append(formatQty(it.quantity)).append(" x ").append(it.productName)
             if (it.note.isNotBlank()) sb.append(" (").append(it.note).append(")")
             if (it.unitPrice > 0) {
                 sb.append(" — ").append(priceFormat.format(it.lineTotal)).append("₫")
@@ -299,14 +311,32 @@ object OrderExtractor {
         return sb.toString()
     }
 
+    private fun simpleWatch(after: (String) -> Unit) = object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        override fun afterTextChanged(s: android.text.Editable?) {
+            after(s?.toString() ?: "")
+        }
+    }
+
     private fun showPopup(ctx: Context, peerName: String, order: ParsedOrder) {
+        removeFloating()
+        pendingPeer = peerName
+        pendingOrder = order
+
+        val products = ShopDb(ctx).listProducts(activeOnly = true)
+
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_order, null, false)
         val etName = view.findViewById<EditText>(R.id.etName)
-        val etItems = view.findViewById<EditText>(R.id.etItems)
         val etAddr = view.findViewById<EditText>(R.id.etAddr)
         val etPhone = view.findViewById<EditText>(R.id.etPhone)
+        val itemsContainer = view.findViewById<LinearLayout>(R.id.itemsContainer)
+        val itemsEmpty = view.findViewById<View>(R.id.itemsEmpty)
+        val txtGrandTotal = view.findViewById<android.widget.TextView>(R.id.txtGrandTotal)
+        val txtTotalLabel = view.findViewById<android.widget.TextView>(R.id.txtTotalLabel)
+        val btnAddItem = view.findViewById<Button>(R.id.btnAddItem)
+
         etName.setText(order.senderName)
-        etItems.setText(formatItemsText(order.items))
         etAddr.setText(order.address)
         etPhone.setText(order.phone)
 
@@ -316,22 +346,152 @@ object OrderExtractor {
         dialog.window?.apply {
             setBackgroundDrawable(ColorDrawable(0x00000000))
             val w = (ctx.resources.displayMetrics.widthPixels * 0.94).toInt()
-            setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+            val h = (ctx.resources.displayMetrics.heightPixels * 0.88).toInt()
+            setLayout(w, h)
         }
 
-        view.findViewById<Button>(R.id.btnCancel).setOnClickListener { dialog.dismiss() }
-        view.findViewById<android.view.View>(R.id.btnDismiss).setOnClickListener { dialog.dismiss() }
+        fun updateGrandTotal() {
+            val total = order.items.sumOf { it.lineTotal }
+            val totalQty = order.items.sumOf { it.quantity }
+            txtGrandTotal.text = priceFormat.format(total) + "₫"
+            txtTotalLabel.text = "Tổng (${formatQty(totalQty)} món)"
+            itemsEmpty.visibility = if (order.items.isEmpty()) View.VISIBLE else View.GONE
+        }
+
+        lateinit var renderAll: () -> Unit
+
+        fun bindRow(row: View, idx: Int) {
+            val tvProduct = row.findViewById<android.widget.TextView>(R.id.tvProduct)
+            val etQty = row.findViewById<EditText>(R.id.etQty)
+            val etNote = row.findViewById<EditText>(R.id.etNote)
+            val tvLineTotal = row.findViewById<android.widget.TextView>(R.id.tvLineTotal)
+            val btnMinus = row.findViewById<View>(R.id.btnMinus)
+            val btnPlus = row.findViewById<View>(R.id.btnPlus)
+            val btnDelete = row.findViewById<View>(R.id.btnDelete)
+
+            val item = order.items[idx]
+            tvProduct.text = when {
+                item.productName.isBlank() -> "(chọn sản phẩm)"
+                item.productId == null -> "(off-menu) ${item.productName}"
+                else -> item.productName
+            }
+
+            etQty.setText(formatQty(item.quantity))
+            etNote.setText(item.note)
+            tvLineTotal.text = formatLineTotal(item)
+
+            val qtyWatcher = simpleWatch { s ->
+                val cur = order.items.getOrNull(idx) ?: return@simpleWatch
+                val newQty = s.replace(",", ".").toDoubleOrNull()
+                if (newQty != null && newQty > 0) {
+                    order.items[idx] = cur.copy(quantity = newQty)
+                    tvLineTotal.text = formatLineTotal(order.items[idx])
+                    updateGrandTotal()
+                }
+            }
+            val noteWatcher = simpleWatch { s ->
+                val cur = order.items.getOrNull(idx) ?: return@simpleWatch
+                order.items[idx] = cur.copy(note = s)
+            }
+            etQty.tag = qtyWatcher
+            etNote.tag = noteWatcher
+            etQty.addTextChangedListener(qtyWatcher)
+            etNote.addTextChangedListener(noteWatcher)
+
+            fun bumpQty(delta: Double) {
+                val cur = order.items.getOrNull(idx) ?: return
+                val newQty = (cur.quantity + delta).coerceAtLeast(1.0)
+                order.items[idx] = cur.copy(quantity = newQty)
+                etQty.removeTextChangedListener(qtyWatcher)
+                etQty.setText(formatQty(newQty))
+                etQty.addTextChangedListener(qtyWatcher)
+                tvLineTotal.text = formatLineTotal(order.items[idx])
+                updateGrandTotal()
+            }
+            btnMinus.setOnClickListener { bumpQty(-1.0) }
+            btnPlus.setOnClickListener { bumpQty(+1.0) }
+
+            btnDelete.setOnClickListener {
+                if (idx < order.items.size) {
+                    order.items.removeAt(idx)
+                    renderAll()
+                }
+            }
+
+            tvProduct.setOnClickListener {
+                openProductPicker(ctx, products) { picked ->
+                    val cur = order.items.getOrNull(idx) ?: return@openProductPicker
+                    order.items[idx] = cur.copy(
+                        productId = picked.id,
+                        productName = picked.name,
+                        unitPrice = picked.price
+                    )
+                    tvProduct.text = picked.name
+                    tvLineTotal.text = formatLineTotal(order.items[idx])
+                    updateGrandTotal()
+                }
+            }
+        }
+
+        renderAll = {
+            itemsContainer.removeAllViews()
+            order.items.forEachIndexed { idx, _ ->
+                val row = LayoutInflater.from(ctx).inflate(
+                    R.layout.item_order_row, itemsContainer, false
+                )
+                itemsContainer.addView(row)
+                bindRow(row, idx)
+            }
+            updateGrandTotal()
+        }
+        renderAll()
+
+        btnAddItem.setOnClickListener {
+            order.items.add(
+                OrderItem(
+                    productId = null,
+                    productName = "",
+                    quantity = 1.0,
+                    unitPrice = 0,
+                    note = "",
+                    rawText = ""
+                )
+            )
+            renderAll()
+            val newIdx = order.items.size - 1
+            openProductPicker(ctx, products) { picked ->
+                val cur = order.items.getOrNull(newIdx) ?: return@openProductPicker
+                order.items[newIdx] = cur.copy(
+                    productId = picked.id,
+                    productName = picked.name,
+                    unitPrice = picked.price
+                )
+                renderAll()
+            }
+        }
+
+        fun captureContact() {
+            order.senderName = etName.text.toString()
+            order.address = etAddr.text.toString()
+            order.phone = etPhone.text.toString()
+        }
+
+        view.findViewById<View>(R.id.btnDismiss).setOnClickListener {
+            pendingPeer = null
+            pendingOrder = null
+            dialog.dismiss()
+        }
+
+        view.findViewById<View>(R.id.btnMinimize).setOnClickListener {
+            captureContact()
+            dialog.dismiss()
+            showFloating(ctx)
+        }
 
         view.findViewById<Button>(R.id.btnCopy).setOnClickListener {
-            val text = buildString {
-                append("Tên: ").append(etName.text).append("\n\n")
-                append(etItems.text).append("\n\n")
-                append("SĐT: ").append(etPhone.text).append('\n')
-                append("Địa chỉ: ").append(etAddr.text)
-            }
-            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
-                as android.content.ClipboardManager
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("Đơn hàng", text))
+            captureContact()
+            copyToClipboard(ctx, order.senderName, buildItemsText(order.items),
+                order.phone, order.address)
             android.widget.Toast.makeText(
                 ctx, "Đã copy đơn hàng", android.widget.Toast.LENGTH_SHORT
             ).show()
@@ -339,31 +499,39 @@ object OrderExtractor {
 
         val btnSave = view.findViewById<Button>(R.id.btnSave)
         btnSave.setOnClickListener {
-            if (order.items.isEmpty()) {
+            val validItems = order.items.filter { it.productName.isNotBlank() }
+            if (validItems.isEmpty()) {
                 android.widget.Toast.makeText(
                     ctx, "Đơn không có món nào để lưu", android.widget.Toast.LENGTH_SHORT
                 ).show()
                 return@setOnClickListener
             }
             btnSave.isEnabled = false
+            captureContact()
+            val itemsText = buildItemsText(validItems)
+            copyToClipboard(ctx, order.senderName, itemsText, order.phone, order.address)
+
             val now = System.currentTimeMillis()
             val record = OrderRecord(
                 createdAt = now,
                 orderDate = orderDateFormat.format(Date(now)),
                 convName = peerName,
-                senderName = etName.text.toString().trim(),
-                phone = etPhone.text.toString().trim(),
-                address = etAddr.text.toString().trim(),
-                itemsText = etItems.text.toString().trim(),
+                senderName = order.senderName.trim(),
+                phone = order.phone.trim(),
+                address = order.address.trim(),
+                itemsText = itemsText,
                 rawJson = order.rawJson,
-                totalAmount = order.items.sumOf { it.lineTotal }
+                totalAmount = validItems.sumOf { it.lineTotal }
             )
-            val newId = runCatching { ShopDb(ctx).insertOrder(record, order.items) }
+            val newId = runCatching { ShopDb(ctx).insertOrder(record, validItems) }
             newId.onSuccess { id ->
-                Log.i(TAG, "ORDER saved id=$id total=${record.totalAmount} items=${order.items.size}")
+                Log.i(TAG, "ORDER saved id=$id total=${record.totalAmount} items=${validItems.size}")
                 android.widget.Toast.makeText(
-                    ctx, "Đã lưu đơn hàng #$id", android.widget.Toast.LENGTH_SHORT
+                    ctx, "Đã lưu đơn #$id & copy vào clipboard", android.widget.Toast.LENGTH_SHORT
                 ).show()
+                pendingPeer = null
+                pendingOrder = null
+                removeFloating()
                 dialog.dismiss()
             }.onFailure {
                 Log.e(TAG, "save order fail", it)
@@ -377,5 +545,87 @@ object OrderExtractor {
         }
 
         dialog.show()
+    }
+
+    private fun openProductPicker(
+        ctx: Context, products: List<Product>, onPick: (Product) -> Unit
+    ) {
+        if (products.isEmpty()) {
+            android.widget.Toast.makeText(
+                ctx, "Chưa có sản phẩm nào trong DB. Vào Cài đặt → Sản phẩm để thêm.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val labels = products.map { p ->
+            "${p.category} · ${p.name} — ${priceFormat.format(p.price)}₫"
+        }.toTypedArray()
+        AlertDialog.Builder(ctx)
+            .setTitle("Chọn sản phẩm")
+            .setItems(labels) { _, which -> onPick(products[which]) }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
+    private fun copyToClipboard(
+        ctx: Context, name: String, itemsText: String, phone: String, addr: String
+    ) {
+        val text = buildString {
+            append("Tên: ").append(name).append("\n\n")
+            append(itemsText).append("\n\n")
+            append("SĐT: ").append(phone).append('\n')
+            append("Địa chỉ: ").append(addr)
+        }
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+            as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("Đơn hàng", text))
+    }
+
+    private fun showFloating(ctx: Context) {
+        val activity = ctx as? android.app.Activity ?: return
+        val root = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
+        removeFloating()
+        val density = ctx.resources.displayMetrics.density
+        val size = (56 * density).toInt()
+        val margin = (16 * density).toInt()
+        val iv = ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_receipt)
+            background = androidx.core.content.ContextCompat.getDrawable(
+                ctx, R.drawable.bg_btn_primary
+            )
+            setPadding(
+                (14 * density).toInt(), (14 * density).toInt(),
+                (14 * density).toInt(), (14 * density).toInt()
+            )
+            elevation = 8 * density
+            setColorFilter(0xFFFFFFFF.toInt())
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Mở lại đơn hàng"
+        }
+        val lp = FrameLayout.LayoutParams(size, size).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            setMargins(margin, margin, margin, (margin * 5))
+        }
+        iv.setOnClickListener {
+            val peer = pendingPeer
+            val order = pendingOrder
+            if (peer != null && order != null) {
+                showPopup(ctx, peer, order)
+            } else {
+                removeFloating()
+            }
+        }
+        root.addView(iv, lp)
+        floatingView = iv
+        floatingHost = root
+    }
+
+    private fun removeFloating() {
+        val v = floatingView
+        val h = floatingHost
+        if (v != null && h != null) h.removeView(v)
+        floatingView = null
+        floatingHost = null
     }
 }

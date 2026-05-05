@@ -45,6 +45,12 @@
             android:label="Sản phẩm"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <activity
+            android:name=".OrdersActivity"
+            android:exported="false"
+            android:label="Đơn hàng"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <service
             android:name=".WebMonitorService"
             android:exported="false"

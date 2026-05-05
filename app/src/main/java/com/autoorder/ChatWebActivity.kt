@@ -40,8 +40,12 @@ class ChatWebActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var counter: TextView
     private lateinit var db: MessagesDb
+    private lateinit var shopDb: ShopDb
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val orderDateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+        timeZone = java.util.TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,6 +55,7 @@ class ChatWebActivity : AppCompatActivity() {
         webView = findViewById(R.id.webView)
         counter = findViewById(R.id.counter)
         db = MessagesDb(this)
+        shopDb = ShopDb(this)
 
         NewMsgNotifier.ensureChannels(this)
         requestNotificationPermissionIfNeeded()
@@ -62,7 +67,7 @@ class ChatWebActivity : AppCompatActivity() {
             triggerExtractSelected()
         }
         findViewById<View>(R.id.btnInbox).setOnClickListener {
-            startActivity(Intent(this, MessagesActivity::class.java))
+            startActivity(Intent(this, OrdersActivity::class.java))
         }
         findViewById<View>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -140,8 +145,9 @@ class ChatWebActivity : AppCompatActivity() {
 
     private fun refreshCounter() {
         ioExecutor.execute {
-            val n = runCatching { db.count() }.getOrDefault(0L)
-            mainHandler.post { counter.text = "$n tin" }
+            val today = orderDateFormat.format(java.util.Date())
+            val n = runCatching { shopDb.ordersCountToday(today) }.getOrDefault(0)
+            mainHandler.post { counter.text = "$n đơn" }
         }
     }
 

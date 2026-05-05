@@ -31,7 +31,7 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, ProductsActivity::class.java))
         }
         findViewById<View>(R.id.rowOpenInbox).setOnClickListener {
-            startActivity(Intent(this, MessagesActivity::class.java))
+            startActivity(Intent(this, OrdersActivity::class.java))
         }
 
         findViewById<View>(R.id.btnHome).setOnClickListener {
@@ -44,7 +44,7 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, "Quét DOM phải làm ở màn Chat", Toast.LENGTH_SHORT).show()
         }
         findViewById<View>(R.id.btnInbox).setOnClickListener {
-            startActivity(Intent(this, MessagesActivity::class.java))
+            startActivity(Intent(this, OrdersActivity::class.java))
             finish()
         }
         findViewById<View>(R.id.btnSettings).setOnClickListener { /* đang ở đây */ }

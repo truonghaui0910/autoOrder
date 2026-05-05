@@ -267,7 +267,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Tin nhắn đã lưu"
+                            android:text="Đơn hàng đã lưu"
                             android:textSize="15sp"
                             android:textColor="#212121" />
 
@@ -275,7 +275,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="Xem dữ liệu trong SQLite"
+                            android:text="Xem &amp; thống kê đơn hàng"
                             android:textSize="12sp"
                             android:textColor="#78909C" />
                     </LinearLayout>

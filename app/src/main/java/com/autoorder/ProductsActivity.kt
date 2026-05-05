@@ -38,6 +38,7 @@ class ProductsActivity : AppCompatActivity() {
         list.adapter = adapter
 
         findViewById<Button>(R.id.btnAdd).setOnClickListener { showEditDialog(null) }
+        findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
 
         findViewById<View>(R.id.btnHome).setOnClickListener {
             startActivity(Intent(this, ChatWebActivity::class.java)
@@ -49,7 +50,7 @@ class ProductsActivity : AppCompatActivity() {
             Toast.makeText(this, "Quét DOM phải làm ở màn Chat", Toast.LENGTH_SHORT).show()
         }
         findViewById<View>(R.id.btnInbox).setOnClickListener {
-            startActivity(Intent(this, MessagesActivity::class.java))
+            startActivity(Intent(this, OrdersActivity::class.java))
             finish()
         }
         findViewById<View>(R.id.btnSettings).setOnClickListener {

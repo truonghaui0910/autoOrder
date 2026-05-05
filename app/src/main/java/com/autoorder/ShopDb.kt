@@ -219,6 +219,160 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         writableDatabase.delete(T_PROD, "id = ?", arrayOf(id.toString()))
     }
 
+    data class OrderSummary(
+        val orderCount: Int,
+        val totalRevenue: Long,
+        val totalItems: Double
+    )
+
+    data class ProductSold(
+        val productId: Long?,
+        val productName: String,
+        val totalQty: Double,
+        val totalRevenue: Long
+    )
+
+    fun queryOrders(fromDate: String?, toDate: String?, limit: Int = 500): List<OrderRecord> {
+        val where = StringBuilder()
+        val args = ArrayList<String>()
+        if (fromDate != null) { where.append("order_date >= ?"); args.add(fromDate) }
+        if (toDate != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("order_date <= ?"); args.add(toDate)
+        }
+        val sql = StringBuilder(
+            "SELECT id, created_at, order_date, conv_name, sender_name, phone, address, " +
+                "items_text, raw_json, total_amount, note FROM $T_ORD"
+        )
+        if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
+        sql.append(" ORDER BY created_at DESC LIMIT ").append(limit)
+
+        val out = ArrayList<OrderRecord>()
+        readableDatabase.rawQuery(sql.toString(), args.toTypedArray()).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    OrderRecord(
+                        id = c.getLong(0),
+                        createdAt = c.getLong(1),
+                        orderDate = c.getString(2) ?: "",
+                        convName = c.getString(3) ?: "",
+                        senderName = c.getString(4) ?: "",
+                        phone = c.getString(5) ?: "",
+                        address = c.getString(6) ?: "",
+                        itemsText = c.getString(7) ?: "",
+                        rawJson = c.getString(8) ?: "",
+                        totalAmount = c.getLong(9),
+                        note = c.getString(10) ?: ""
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    fun summary(fromDate: String?, toDate: String?): OrderSummary {
+        val where = StringBuilder()
+        val args = ArrayList<String>()
+        if (fromDate != null) { where.append("o.order_date >= ?"); args.add(fromDate) }
+        if (toDate != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("o.order_date <= ?"); args.add(toDate)
+        }
+        val sql = StringBuilder(
+            "SELECT COUNT(DISTINCT o.id), COALESCE(SUM(o.total_amount), 0), " +
+                "COALESCE((SELECT SUM(oi.quantity) FROM $T_OI oi " +
+                "JOIN $T_ORD o2 ON o2.id = oi.order_id"
+        )
+        if (where.isNotEmpty()) {
+            sql.append(" WHERE ").append(where.toString().replace("o.order_date", "o2.order_date"))
+        }
+        sql.append("), 0) FROM $T_ORD o")
+        if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
+
+        val allArgs = (args + args).toTypedArray()
+        readableDatabase.rawQuery(sql.toString(), allArgs).use { c ->
+            if (c.moveToFirst()) {
+                return OrderSummary(c.getInt(0), c.getLong(1), c.getDouble(2))
+            }
+        }
+        return OrderSummary(0, 0, 0.0)
+    }
+
+    fun productsSold(fromDate: String?, toDate: String?, limit: Int = 50): List<ProductSold> {
+        val where = StringBuilder()
+        val args = ArrayList<String>()
+        if (fromDate != null) { where.append("o.order_date >= ?"); args.add(fromDate) }
+        if (toDate != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("o.order_date <= ?"); args.add(toDate)
+        }
+        val sql = StringBuilder(
+            "SELECT oi.product_id, oi.product_name, SUM(oi.quantity), SUM(oi.line_total) " +
+                "FROM $T_OI oi JOIN $T_ORD o ON o.id = oi.order_id"
+        )
+        if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
+        sql.append(" GROUP BY oi.product_id, oi.product_name ORDER BY SUM(oi.line_total) DESC LIMIT ")
+            .append(limit)
+
+        val out = ArrayList<ProductSold>()
+        readableDatabase.rawQuery(sql.toString(), args.toTypedArray()).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    ProductSold(
+                        productId = if (c.isNull(0)) null else c.getLong(0),
+                        productName = c.getString(1) ?: "",
+                        totalQty = c.getDouble(2),
+                        totalRevenue = c.getLong(3)
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    fun queryOrderItems(orderId: Long): List<OrderItem> {
+        val out = ArrayList<OrderItem>()
+        readableDatabase.rawQuery(
+            "SELECT product_id, product_name, quantity, unit_price, note, raw_text " +
+                "FROM $T_OI WHERE order_id = ? ORDER BY id",
+            arrayOf(orderId.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    OrderItem(
+                        productId = if (c.isNull(0)) null else c.getLong(0),
+                        productName = c.getString(1) ?: "",
+                        quantity = c.getDouble(2),
+                        unitPrice = c.getInt(3),
+                        note = c.getString(4) ?: "",
+                        rawText = c.getString(5) ?: ""
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    fun deleteOrder(orderId: Long) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(T_OI, "order_id = ?", arrayOf(orderId.toString()))
+            db.delete(T_ORD, "id = ?", arrayOf(orderId.toString()))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun ordersCountToday(today: String): Int {
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM $T_ORD WHERE order_date = ?",
+            arrayOf(today)
+        ).use { c -> if (c.moveToFirst()) return c.getInt(0) }
+        return 0
+    }
+
     fun insertOrder(order: OrderRecord, items: List<OrderItem>): Long {
         val db = writableDatabase
         db.beginTransaction()
