@@ -2,14 +2,18 @@ package com.autoorder
 
 import android.app.AlertDialog
 import android.app.Dialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -198,11 +202,32 @@ class OrdersActivity : AppCompatActivity() {
         dialog.findViewById<TextView>(R.id.itemsBlock).text = sb.toString().trimEnd()
         dialog.findViewById<TextView>(R.id.total).text = priceFormat.format(o.totalAmount) + "₫"
 
+        val bankInfo = dialog.findViewById<TextView>(R.id.bankInfo)
+        val qrImage = dialog.findViewById<ImageView>(R.id.qrImage)
+        val qrStatus = dialog.findViewById<TextView>(R.id.qrStatus)
+        bankInfo.text = BankQr.infoText(this)
+        val qrHolder = arrayOfNulls<Bitmap>(1)
+        if (o.totalAmount > 0) {
+            qrStatus.text = "Đang tạo QR..."
+            BankQr.loadAsync(BankQr.vietQrUrl(this, o.totalAmount.toLong(), "Don ${o.id}")) { bmp ->
+                if (bmp != null) {
+                    qrImage.setImageBitmap(bmp)
+                    qrStatus.visibility = View.GONE
+                    qrHolder[0] = bmp
+                } else {
+                    qrStatus.text = "Không tải được QR"
+                }
+            }
+        } else {
+            qrStatus.text = "Đơn không có tổng tiền"
+        }
+
         dialog.findViewById<View>(R.id.btnDismiss).setOnClickListener { dialog.dismiss() }
         dialog.findViewById<Button>(R.id.btnClose).setOnClickListener { dialog.dismiss() }
         dialog.findViewById<Button>(R.id.btnCopy).setOnClickListener {
             copyOrderToClipboard(this, o, items)
-            Toast.makeText(this, "Đã copy đơn hàng", Toast.LENGTH_SHORT).show()
+            qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
+            Toast.makeText(this, "Đã copy đơn", Toast.LENGTH_SHORT).show()
         }
         dialog.findViewById<Button>(R.id.btnDelete).setOnClickListener {
             AlertDialog.Builder(this)
@@ -222,9 +247,9 @@ class OrdersActivity : AppCompatActivity() {
     }
 
     companion object {
-        fun copyOrderToClipboard(ctx: Context, o: OrderRecord, items: List<OrderItem>) {
+        fun orderToText(o: OrderRecord, items: List<OrderItem>): String {
             val nf = NumberFormat.getInstance(Locale("vi", "VN"))
-            val text = buildString {
+            return buildString {
                 append("Tên: ").append(o.senderName).append("\n\n")
                 items.forEach { it ->
                     val q = if (it.quantity == it.quantity.toLong().toDouble())
@@ -240,9 +265,11 @@ class OrdersActivity : AppCompatActivity() {
                 append("SĐT: ").append(o.phone).append('\n')
                 append("Địa chỉ: ").append(o.address)
             }
-            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
-                as android.content.ClipboardManager
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("Đơn hàng", text))
+        }
+
+        fun copyOrderToClipboard(ctx: Context, o: OrderRecord, items: List<OrderItem>) {
+            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("Đơn hàng", orderToText(o, items)))
         }
     }
 }

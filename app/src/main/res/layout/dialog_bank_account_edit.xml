@@ -20,7 +20,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Sản phẩm"
+            android:text="Tài khoản"
             android:textSize="17sp"
             android:textStyle="bold"
             android:textColor="#FFFFFF" />
@@ -41,66 +41,42 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:maxHeight="460dp">
+        android:maxHeight="500dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="16dp"
-            android:paddingBottom="8dp">
+            android:padding="20dp">
 
-            <TextView style="@style/OrderFieldLabel" android:text="Danh mục" />
+            <TextView
+                style="@style/OrderFieldLabel"
+                android:text="Ngân hàng" />
+
             <Spinner
-                android:id="@+id/spCategory"
+                android:id="@+id/spBank"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginBottom="6dp" />
+                android:layout_height="48dp" />
 
-            <TextView style="@style/OrderFieldLabel" android:text="Tên sản phẩm" />
+            <TextView
+                style="@style/OrderFieldLabel"
+                android:text="Số tài khoản" />
+
             <EditText
-                android:id="@+id/etName"
+                android:id="@+id/etAccount"
                 style="@style/OrderFieldInput"
-                android:inputType="textCapSentences"
+                android:inputType="textVisiblePassword"
                 android:singleLine="true" />
 
-            <TextView style="@style/OrderFieldLabel" android:text="Giá (VND)" />
+            <TextView
+                style="@style/OrderFieldLabel"
+                android:text="Chủ tài khoản (in hoa, không dấu)" />
+
             <EditText
-                android:id="@+id/etPrice"
+                android:id="@+id/etHolder"
                 style="@style/OrderFieldInput"
-                android:inputType="number"
+                android:inputType="textCapCharacters"
                 android:singleLine="true" />
-
-            <TextView style="@style/OrderFieldLabel" android:text="Ghi chú (size, định lượng...)" />
-            <EditText
-                android:id="@+id/etNote"
-                style="@style/OrderFieldInput"
-                android:inputType="textMultiLine|textCapSentences"
-                android:minLines="1"
-                android:gravity="top|start" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="14dp">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Đang bán"
-                    android:textSize="14sp"
-                    android:textColor="#212121" />
-
-                <Switch
-                    android:id="@+id/swActive"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true" />
-            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 
@@ -108,7 +84,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:paddingHorizontal="16dp"
         android:paddingTop="8dp"
         android:paddingBottom="16dp">
@@ -122,8 +97,7 @@
             android:textColor="#C62828"
             android:textAllCaps="false"
             android:textStyle="bold"
-            android:background="@drawable/bg_btn_ghost"
-            android:visibility="gone" />
+            android:background="@drawable/bg_btn_ghost" />
 
         <View
             android:layout_width="0dp"
@@ -131,21 +105,9 @@
             android:layout_weight="1" />
 
         <Button
-            android:id="@+id/btnCancel"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:minWidth="80dp"
-            android:text="Huỷ"
-            android:textColor="#607D8B"
-            android:textAllCaps="false"
-            android:textStyle="bold"
-            android:background="@drawable/bg_btn_ghost" />
-
-        <Button
             android:id="@+id/btnSave"
             android:layout_width="wrap_content"
             android:layout_height="44dp"
-            android:layout_marginStart="8dp"
             android:minWidth="100dp"
             android:text="Lưu"
             android:textColor="#FFFFFF"

@@ -17,6 +17,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var txtViewMode: TextView
     private lateinit var txtProductsCount: TextView
+    private lateinit var txtBankSummary: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,11 +25,16 @@ class SettingsActivity : AppCompatActivity() {
 
         txtViewMode = findViewById(R.id.txtViewMode)
         txtProductsCount = findViewById(R.id.txtProductsCount)
+        txtBankSummary = findViewById(R.id.txtBankSummary)
         refreshSummaries()
 
+        findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<View>(R.id.rowViewMode).setOnClickListener { showViewModeDialog() }
         findViewById<View>(R.id.rowProducts).setOnClickListener {
             startActivity(Intent(this, ProductsActivity::class.java))
+        }
+        findViewById<View>(R.id.rowBankAccounts).setOnClickListener {
+            startActivity(Intent(this, BankAccountsActivity::class.java))
         }
         findViewById<View>(R.id.rowOpenInbox).setOnClickListener {
             startActivity(Intent(this, OrdersActivity::class.java))
@@ -62,6 +68,14 @@ class SettingsActivity : AppCompatActivity() {
             "Web view (Desktop, 3 cột)"
         val count = ShopDb(this).listProducts(activeOnly = false).size
         txtProductsCount.text = "$count sản phẩm"
+
+        val accounts = BankAccountsStore.list(this)
+        val active = accounts.firstOrNull { it.active }
+        txtBankSummary.text = when {
+            accounts.isEmpty() -> "Chưa có — đang dùng tài khoản mặc định"
+            active != null -> "${active.bankName} · ${active.accountNumber} (${accounts.size} TK)"
+            else -> "${accounts.size} tài khoản"
+        }
     }
 
     private fun showViewModeDialog() {

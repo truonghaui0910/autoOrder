@@ -176,6 +176,55 @@
                 style="@style/OrderFieldInput"
                 android:inputType="phone"
                 android:singleLine="true" />
+
+            <LinearLayout
+                android:id="@+id/qrSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp"
+                android:padding="12dp"
+                android:background="#F5F9FF">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Mã QR chuyển khoản"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#1E88E5" />
+
+                <TextView
+                    android:id="@+id/bankInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="12sp"
+                    android:textColor="#37474F" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp">
+
+                    <ImageView
+                        android:id="@+id/qrImage"
+                        android:layout_width="220dp"
+                        android:layout_height="220dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="QR chuyển khoản"
+                        android:background="#FFFFFF" />
+
+                    <TextView
+                        android:id="@+id/qrStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="Nhập tổng để tạo QR"
+                        android:textSize="12sp"
+                        android:textColor="#90A4AE" />
+                </FrameLayout>
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 

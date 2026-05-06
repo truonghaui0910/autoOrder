@@ -8,8 +8,11 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Spinner
+import android.widget.AdapterView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -82,16 +85,73 @@ class ProductsActivity : AppCompatActivity() {
         }
 
         val title = dialog.findViewById<TextView>(R.id.dialogTitle)
-        val etCat = dialog.findViewById<EditText>(R.id.etCategory)
+        val spCat = dialog.findViewById<Spinner>(R.id.spCategory)
         val etName = dialog.findViewById<EditText>(R.id.etName)
         val etPrice = dialog.findViewById<EditText>(R.id.etPrice)
         val etNote = dialog.findViewById<EditText>(R.id.etNote)
         val swActive = dialog.findViewById<Switch>(R.id.swActive)
         val btnDelete = dialog.findViewById<Button>(R.id.btnDelete)
 
+        val addNewLabel = "+ Thêm danh mục mới..."
+        val categories = ArrayList<String>().apply {
+            addAll(db.listProducts(activeOnly = false)
+                .map { it.category.trim().uppercase() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .sorted())
+            if (existing != null) {
+                val cur = existing.category.trim().uppercase()
+                if (cur.isNotEmpty() && !contains(cur)) add(cur)
+            }
+            if (isEmpty()) add("KHÁC")
+            add(addNewLabel)
+        }
+        val catAdapter = ArrayAdapter(this, R.layout.spinner_item_dark, categories)
+        catAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_dark)
+        spCat.adapter = catAdapter
+
+        fun selectCategory(value: String) {
+            val v = value.trim().uppercase().ifBlank { "KHÁC" }
+            var idx = categories.indexOf(v)
+            if (idx < 0) {
+                categories.add(categories.size - 1, v)
+                catAdapter.notifyDataSetChanged()
+                idx = categories.indexOf(v)
+            }
+            spCat.setSelection(idx)
+        }
+
+        spCat.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (categories[position] == addNewLabel) {
+                    val input = EditText(this@ProductsActivity).apply {
+                        hint = "VD: TRÀ, ĂN VẶT"
+                        inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                                android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+                        setSingleLine(true)
+                    }
+                    AlertDialog.Builder(this@ProductsActivity)
+                        .setTitle("Danh mục mới")
+                        .setView(input)
+                        .setNegativeButton("Huỷ") { _, _ -> spCat.setSelection(0) }
+                        .setOnCancelListener { spCat.setSelection(0) }
+                        .setPositiveButton("OK") { _, _ ->
+                            val v = input.text.toString().trim().uppercase()
+                            if (v.isEmpty()) {
+                                spCat.setSelection(0)
+                            } else {
+                                selectCategory(v)
+                            }
+                        }
+                        .show()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
         if (existing != null) {
             title.text = "Sửa sản phẩm"
-            etCat.setText(existing.category)
+            selectCategory(existing.category)
             etName.setText(existing.name)
             etPrice.setText(existing.price.toString())
             etNote.setText(existing.note)
@@ -121,7 +181,8 @@ class ProductsActivity : AppCompatActivity() {
         }
 
         dialog.findViewById<Button>(R.id.btnSave).setOnClickListener {
-            val cat = etCat.text.toString().trim().ifBlank { "KHÁC" }
+            val selCat = (spCat.selectedItem as? String).orEmpty()
+            val cat = if (selCat.isBlank() || selCat == addNewLabel) "KHÁC" else selCat
             val name = etName.text.toString().trim()
             val priceStr = etPrice.text.toString().trim()
             if (name.isEmpty()) {

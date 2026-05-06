@@ -26,6 +26,48 @@ class ChatWebActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "AutoOrder"
         private const val URL = "https://chat.zalo.me/"
+
+        private const val PASTE_QR_JS = """
+(function(){
+  try {
+    var dataUrl = '__DATA_URL__';
+    var parts = dataUrl.split(',');
+    var bin = atob(parts[1]);
+    var ab = new ArrayBuffer(bin.length);
+    var ia = new Uint8Array(ab);
+    for (var i=0; i<bin.length; i++) ia[i] = bin.charCodeAt(i);
+    var blob = new Blob([ab], {type:'image/png'});
+    var file = new File([blob], 'qr.png', {type:'image/png', lastModified: Date.now()});
+    var dt = new DataTransfer();
+    dt.items.add(file);
+
+    var target = (document.activeElement && document.activeElement.isContentEditable)
+      ? document.activeElement : null;
+    if (!target) {
+      var nodes = document.querySelectorAll('div[contenteditable="true"], [contenteditable=""]');
+      for (var j=nodes.length-1; j>=0; j--) {
+        var r = nodes[j].getBoundingClientRect();
+        if (r.width > 50 && r.height > 10) { target = nodes[j]; break; }
+      }
+    }
+    if (!target) return 'NO_INPUT';
+    target.focus();
+
+    var ev;
+    try {
+      ev = new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData: dt });
+    } catch(e) {
+      ev = document.createEvent('Event');
+      ev.initEvent('paste', true, true);
+    }
+    try { Object.defineProperty(ev, 'clipboardData', { value: dt, configurable: true }); } catch(e){}
+    target.dispatchEvent(ev);
+    return 'OK';
+  } catch (e) {
+    return 'ERR_' + (e && e.message ? e.message : e);
+  }
+})();
+"""
         private const val UA_DESKTOP =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -39,6 +81,8 @@ class ChatWebActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var counter: TextView
+    private lateinit var qrPasteBar: View
+    private lateinit var btnPasteQr: android.widget.Button
     private lateinit var db: MessagesDb
     private lateinit var shopDb: ShopDb
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -54,8 +98,16 @@ class ChatWebActivity : AppCompatActivity() {
 
         webView = findViewById(R.id.webView)
         counter = findViewById(R.id.counter)
+        qrPasteBar = findViewById(R.id.qrPasteBar)
+        btnPasteQr = findViewById(R.id.btnPasteQr)
         db = MessagesDb(this)
         shopDb = ShopDb(this)
+
+        btnPasteQr.setOnClickListener { pastePendingQr() }
+        findViewById<View>(R.id.btnPasteQrClose).setOnClickListener {
+            PendingQr.clear()
+            updatePasteQrVisibility()
+        }
 
         NewMsgNotifier.ensureChannels(this)
         requestNotificationPermissionIfNeeded()
@@ -163,6 +215,43 @@ class ChatWebActivity : AppCompatActivity() {
         webView.resumeTimers()
         if (AppPrefs.getViewMode(this) != currentMode) {
             recreate()
+        }
+        updatePasteQrVisibility()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) updatePasteQrVisibility()
+    }
+
+    private fun updatePasteQrVisibility() {
+        qrPasteBar.visibility = if (PendingQr.dataUrl != null) View.VISIBLE else View.GONE
+    }
+
+    private fun pastePendingQr() {
+        val data = PendingQr.dataUrl
+        if (data.isNullOrEmpty()) {
+            Toast.makeText(this, "Không có QR đang chờ", Toast.LENGTH_SHORT).show()
+            updatePasteQrVisibility()
+            return
+        }
+        val js = PASTE_QR_JS.replace("__DATA_URL__", data)
+        webView.evaluateJavascript(js) { result ->
+            val r = (result ?: "").trim('"')
+            Log.i(TAG, "PasteQR result=$r")
+            when {
+                r == "OK" -> {
+                    Toast.makeText(this, "Đã dán QR vào ô chat", Toast.LENGTH_SHORT).show()
+                    PendingQr.clear()
+                    updatePasteQrVisibility()
+                }
+                r == "NO_INPUT" -> Toast.makeText(
+                    this,
+                    "Hãy bấm vào ô chat của 1 hội thoại trước, rồi bấm Dán QR",
+                    Toast.LENGTH_LONG
+                ).show()
+                else -> Toast.makeText(this, "Lỗi dán QR: $r", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

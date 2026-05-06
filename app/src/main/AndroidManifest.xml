@@ -51,6 +51,12 @@
             android:label="Đơn hàng"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <activity
+            android:name=".BankAccountsActivity"
+            android:exported="false"
+            android:label="Tài khoản nhận tiền"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <service
             android:name=".WebMonitorService"
             android:exported="false"

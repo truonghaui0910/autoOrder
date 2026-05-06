@@ -335,6 +335,11 @@ object OrderExtractor {
         val txtGrandTotal = view.findViewById<android.widget.TextView>(R.id.txtGrandTotal)
         val txtTotalLabel = view.findViewById<android.widget.TextView>(R.id.txtTotalLabel)
         val btnAddItem = view.findViewById<Button>(R.id.btnAddItem)
+        val qrImage = view.findViewById<ImageView>(R.id.qrImage)
+        val qrStatus = view.findViewById<android.widget.TextView>(R.id.qrStatus)
+        view.findViewById<android.widget.TextView>(R.id.bankInfo).text = BankQr.infoText(ctx)
+        val qrHolder = arrayOfNulls<android.graphics.Bitmap>(1)
+        var qrLoadedAmount = -1L
 
         etName.setText(order.senderName)
         etAddr.setText(order.address)
@@ -350,12 +355,44 @@ object OrderExtractor {
             setLayout(w, h)
         }
 
+        val qrReloadRunnable = Runnable {
+            val total = order.items.sumOf { it.lineTotal }
+            if (total <= 0) {
+                qrImage.setImageDrawable(null)
+                qrStatus.visibility = View.VISIBLE
+                qrStatus.text = "Chưa có tổng để tạo QR"
+                qrHolder[0] = null
+                qrLoadedAmount = -1
+                return@Runnable
+            }
+            if (total == qrLoadedAmount) return@Runnable
+            qrLoadedAmount = total
+            qrStatus.visibility = View.VISIBLE
+            qrStatus.text = "Đang tạo QR..."
+            val url = BankQr.vietQrUrl(ctx, total, "Don $peerName")
+            BankQr.loadAsync(url) { bmp ->
+                if (qrLoadedAmount != total) return@loadAsync
+                if (bmp != null) {
+                    qrImage.setImageBitmap(bmp)
+                    qrStatus.visibility = View.GONE
+                    qrHolder[0] = bmp
+                } else {
+                    qrStatus.text = "Không tải được QR"
+                }
+            }
+        }
+        fun reloadQrDebounced() {
+            main.removeCallbacks(qrReloadRunnable)
+            main.postDelayed(qrReloadRunnable, 350L)
+        }
+
         fun updateGrandTotal() {
             val total = order.items.sumOf { it.lineTotal }
             val totalQty = order.items.sumOf { it.quantity }
             txtGrandTotal.text = priceFormat.format(total) + "₫"
             txtTotalLabel.text = "Tổng (${formatQty(totalQty)} món)"
             itemsEmpty.visibility = if (order.items.isEmpty()) View.VISIBLE else View.GONE
+            reloadQrDebounced()
         }
 
         lateinit var renderAll: () -> Unit
@@ -490,10 +527,12 @@ object OrderExtractor {
 
         view.findViewById<Button>(R.id.btnCopy).setOnClickListener {
             captureContact()
-            copyToClipboard(ctx, order.senderName, buildItemsText(order.items),
+            val orderText = buildOrderText(order.senderName, buildItemsText(order.items),
                 order.phone, order.address)
+            copyTextOnly(ctx, orderText)
+            qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
             android.widget.Toast.makeText(
-                ctx, "Đã copy đơn hàng", android.widget.Toast.LENGTH_SHORT
+                ctx, "Đã copy đơn", android.widget.Toast.LENGTH_SHORT
             ).show()
         }
 
@@ -509,7 +548,9 @@ object OrderExtractor {
             btnSave.isEnabled = false
             captureContact()
             val itemsText = buildItemsText(validItems)
-            copyToClipboard(ctx, order.senderName, itemsText, order.phone, order.address)
+            val orderText = buildOrderText(order.senderName, itemsText, order.phone, order.address)
+            copyTextOnly(ctx, orderText)
+            qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
 
             val now = System.currentTimeMillis()
             val record = OrderRecord(
@@ -567,18 +608,25 @@ object OrderExtractor {
             .show()
     }
 
-    private fun copyToClipboard(
-        ctx: Context, name: String, itemsText: String, phone: String, addr: String
-    ) {
-        val text = buildString {
-            append("Tên: ").append(name).append("\n\n")
-            append(itemsText).append("\n\n")
-            append("SĐT: ").append(phone).append('\n')
-            append("Địa chỉ: ").append(addr)
-        }
+    private fun buildOrderText(
+        name: String, itemsText: String, phone: String, addr: String
+    ): String = buildString {
+        append("Tên: ").append(name).append("\n\n")
+        append(itemsText).append("\n\n")
+        append("SĐT: ").append(phone).append('\n')
+        append("Địa chỉ: ").append(addr)
+    }
+
+    private fun copyTextOnly(ctx: Context, text: String) {
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
             as android.content.ClipboardManager
         cm.setPrimaryClip(android.content.ClipData.newPlainText("Đơn hàng", text))
+    }
+
+    private fun copyToClipboard(
+        ctx: Context, name: String, itemsText: String, phone: String, addr: String
+    ) {
+        copyTextOnly(ctx, buildOrderText(name, itemsText, phone, addr))
     }
 
     private fun showFloating(ctx: Context) {
