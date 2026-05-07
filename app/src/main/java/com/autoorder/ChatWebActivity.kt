@@ -164,6 +164,8 @@ class ChatWebActivity : AppCompatActivity() {
 
         webView.loadUrl(URL)
         refreshCounter()
+
+        OrderExtractor.onOrderSaved = { mainHandler.post { refreshCounter() } }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -217,6 +219,7 @@ class ChatWebActivity : AppCompatActivity() {
             recreate()
         }
         updatePasteQrVisibility()
+        refreshCounter()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

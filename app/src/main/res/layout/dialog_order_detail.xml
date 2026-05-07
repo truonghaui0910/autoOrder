@@ -40,6 +40,18 @@
         </LinearLayout>
 
         <ImageView
+            android:id="@+id/paidIcon"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="6dp"
+            android:layout_marginEnd="4dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Trạng thái thanh toán"
+            app:tint="#FFFFFF" />
+
+        <ImageView
             android:id="@+id/btnDismiss"
             android:layout_width="32dp"
             android:layout_height="32dp"

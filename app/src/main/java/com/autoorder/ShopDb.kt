@@ -37,14 +37,15 @@ data class OrderRecord(
     val itemsText: String,
     val rawJson: String,
     val totalAmount: Long,
-    val note: String = ""
+    val note: String = "",
+    val paid: Boolean = false
 )
 
 class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, null, DB_VERSION) {
 
     companion object {
         const val DB_NAME = "shop.db"
-        const val DB_VERSION = 1
+        const val DB_VERSION = 2
         const val T_PROD = "products"
         const val T_ORD = "orders"
         const val T_OI = "order_items"
@@ -82,7 +83,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 items_text TEXT,
                 raw_json TEXT,
                 total_amount INTEGER NOT NULL DEFAULT 0,
-                note TEXT
+                note TEXT,
+                paid INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent()
         )
@@ -112,7 +114,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // dev: schema mới chưa migrate, để trống
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE $T_ORD ADD COLUMN paid INTEGER NOT NULL DEFAULT 0")
+        }
     }
 
     private fun seedProducts(db: SQLiteDatabase) {
@@ -232,7 +236,14 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         val totalRevenue: Long
     )
 
-    fun queryOrders(fromDate: String?, toDate: String?, limit: Int = 500): List<OrderRecord> {
+    data class CustomerStat(
+        val displayName: String,
+        val phone: String,
+        val orderCount: Int,
+        val totalRevenue: Long
+    )
+
+    fun queryOrders(fromDate: String?, toDate: String?, paid: Boolean? = null, limit: Int = 500): List<OrderRecord> {
         val where = StringBuilder()
         val args = ArrayList<String>()
         if (fromDate != null) { where.append("order_date >= ?"); args.add(fromDate) }
@@ -240,9 +251,13 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
             if (where.isNotEmpty()) where.append(" AND ")
             where.append("order_date <= ?"); args.add(toDate)
         }
+        if (paid != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("paid = ?"); args.add(if (paid) "1" else "0")
+        }
         val sql = StringBuilder(
             "SELECT id, created_at, order_date, conv_name, sender_name, phone, address, " +
-                "items_text, raw_json, total_amount, note FROM $T_ORD"
+                "items_text, raw_json, total_amount, note, paid FROM $T_ORD"
         )
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
         sql.append(" ORDER BY created_at DESC LIMIT ").append(limit)
@@ -262,7 +277,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                         itemsText = c.getString(7) ?: "",
                         rawJson = c.getString(8) ?: "",
                         totalAmount = c.getLong(9),
-                        note = c.getString(10) ?: ""
+                        note = c.getString(10) ?: "",
+                        paid = c.getInt(11) == 1
                     )
                 )
             }
@@ -270,7 +286,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         return out
     }
 
-    fun summary(fromDate: String?, toDate: String?): OrderSummary {
+    fun summary(fromDate: String?, toDate: String?, paid: Boolean? = null): OrderSummary {
         val where = StringBuilder()
         val args = ArrayList<String>()
         if (fromDate != null) { where.append("o.order_date >= ?"); args.add(fromDate) }
@@ -278,13 +294,21 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
             if (where.isNotEmpty()) where.append(" AND ")
             where.append("o.order_date <= ?"); args.add(toDate)
         }
+        if (paid != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("o.paid = ?"); args.add(if (paid) "1" else "0")
+        }
         val sql = StringBuilder(
             "SELECT COUNT(DISTINCT o.id), COALESCE(SUM(o.total_amount), 0), " +
                 "COALESCE((SELECT SUM(oi.quantity) FROM $T_OI oi " +
                 "JOIN $T_ORD o2 ON o2.id = oi.order_id"
         )
         if (where.isNotEmpty()) {
-            sql.append(" WHERE ").append(where.toString().replace("o.order_date", "o2.order_date"))
+            sql.append(" WHERE ").append(
+                where.toString()
+                    .replace("o.order_date", "o2.order_date")
+                    .replace("o.paid", "o2.paid")
+            )
         }
         sql.append("), 0) FROM $T_ORD o")
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
@@ -298,13 +322,17 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         return OrderSummary(0, 0, 0.0)
     }
 
-    fun productsSold(fromDate: String?, toDate: String?, limit: Int = 50): List<ProductSold> {
+    fun productsSold(fromDate: String?, toDate: String?, paid: Boolean? = null, limit: Int = 50): List<ProductSold> {
         val where = StringBuilder()
         val args = ArrayList<String>()
         if (fromDate != null) { where.append("o.order_date >= ?"); args.add(fromDate) }
         if (toDate != null) {
             if (where.isNotEmpty()) where.append(" AND ")
             where.append("o.order_date <= ?"); args.add(toDate)
+        }
+        if (paid != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("o.paid = ?"); args.add(if (paid) "1" else "0")
         }
         val sql = StringBuilder(
             "SELECT oi.product_id, oi.product_name, SUM(oi.quantity), SUM(oi.line_total) " +
@@ -323,6 +351,75 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                         productName = c.getString(1) ?: "",
                         totalQty = c.getDouble(2),
                         totalRevenue = c.getLong(3)
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    fun ordersPerDay(fromDate: String?, toDate: String?, paid: Boolean? = null): List<Pair<String, Int>> {
+        val where = StringBuilder()
+        val args = ArrayList<String>()
+        if (fromDate != null) { where.append("order_date >= ?"); args.add(fromDate) }
+        if (toDate != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("order_date <= ?"); args.add(toDate)
+        }
+        if (paid != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("paid = ?"); args.add(if (paid) "1" else "0")
+        }
+        val sql = StringBuilder("SELECT order_date, COUNT(*) FROM $T_ORD")
+        if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
+        sql.append(" GROUP BY order_date ORDER BY order_date ASC")
+
+        val out = ArrayList<Pair<String, Int>>()
+        readableDatabase.rawQuery(sql.toString(), args.toTypedArray()).use { c ->
+            while (c.moveToNext()) {
+                out.add((c.getString(0) ?: "") to c.getInt(1))
+            }
+        }
+        return out
+    }
+
+    fun customersStat(fromDate: String?, toDate: String?, paid: Boolean? = null, limit: Int = 200): List<CustomerStat> {
+        val where = StringBuilder()
+        val args = ArrayList<String>()
+        if (fromDate != null) { where.append("order_date >= ?"); args.add(fromDate) }
+        if (toDate != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("order_date <= ?"); args.add(toDate)
+        }
+        if (paid != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("paid = ?"); args.add(if (paid) "1" else "0")
+        }
+        val groupKey = "COALESCE(NULLIF(TRIM(phone),''), NULLIF(TRIM(sender_name),''), NULLIF(TRIM(conv_name),''), '(không tên)')"
+        val sql = StringBuilder(
+            "SELECT $groupKey AS gkey, " +
+                "MAX(CASE WHEN TRIM(COALESCE(sender_name,''))<>'' THEN sender_name " +
+                "WHEN TRIM(COALESCE(conv_name,''))<>'' THEN conv_name ELSE '' END) AS name, " +
+                "MAX(COALESCE(phone,'')) AS ph, " +
+                "COUNT(*) AS oc, COALESCE(SUM(total_amount),0) AS rev " +
+                "FROM $T_ORD"
+        )
+        if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
+        sql.append(" GROUP BY gkey ORDER BY rev DESC, oc DESC LIMIT ").append(limit)
+
+        val out = ArrayList<CustomerStat>()
+        readableDatabase.rawQuery(sql.toString(), args.toTypedArray()).use { c ->
+            while (c.moveToNext()) {
+                val gkey = c.getString(0) ?: ""
+                val name = c.getString(1) ?: ""
+                val phone = c.getString(2) ?: ""
+                val display = name.ifBlank { gkey }
+                out.add(
+                    CustomerStat(
+                        displayName = display.ifBlank { "(không tên)" },
+                        phone = phone,
+                        orderCount = c.getInt(3),
+                        totalRevenue = c.getLong(4)
                     )
                 )
             }
@@ -351,6 +448,11 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
             }
         }
         return out
+    }
+
+    fun setOrderPaid(orderId: Long, paid: Boolean) {
+        val cv = ContentValues().apply { put("paid", if (paid) 1 else 0) }
+        writableDatabase.update(T_ORD, cv, "id = ?", arrayOf(orderId.toString()))
     }
 
     fun deleteOrder(orderId: Long) {
@@ -388,6 +490,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 put("raw_json", order.rawJson)
                 put("total_amount", order.totalAmount)
                 put("note", order.note)
+                put("paid", if (order.paid) 1 else 0)
             }
             val orderId = db.insert(T_ORD, null, cv)
             items.forEach { oi ->

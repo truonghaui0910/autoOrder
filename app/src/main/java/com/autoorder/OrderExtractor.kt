@@ -55,6 +55,7 @@ object OrderExtractor {
 
     private var pendingPeer: String? = null
     private var pendingOrder: ParsedOrder? = null
+    var onOrderSaved: (() -> Unit)? = null
     private var floatingView: View? = null
     private var floatingHost: ViewGroup? = null
 
@@ -264,6 +265,21 @@ object OrderExtractor {
         return out
     }
 
+    private val compactDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+    }
+
+    private fun todayCompact(): String = compactDateFormat.format(Date())
+
+    private fun slug(s: String): String {
+        val noDiacritics = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            .replace('đ', 'd').replace('Đ', 'D')
+        return noDiacritics
+            .replace(Regex("[^A-Za-z0-9]+"), "_")
+            .trim('_')
+    }
+
     private fun extractJsonObject(s: String): String? {
         val start = s.indexOf('{')
         if (start < 0) return null
@@ -293,21 +309,25 @@ object OrderExtractor {
     private fun formatLineTotal(it: OrderItem): String =
         if (it.unitPrice > 0) priceFormat.format(it.lineTotal) + "₫" else "(chưa map)"
 
-    private fun buildItemsText(items: List<OrderItem>): String {
+    private fun buildItemsText(items: List<OrderItem>, withPrices: Boolean = true): String {
         if (items.isEmpty()) return ""
         val sb = StringBuilder()
         items.forEachIndexed { idx, it ->
             if (idx > 0) sb.append('\n')
             sb.append(formatQty(it.quantity)).append(" x ").append(it.productName)
             if (it.note.isNotBlank()) sb.append(" (").append(it.note).append(")")
-            if (it.unitPrice > 0) {
-                sb.append(" — ").append(priceFormat.format(it.lineTotal)).append("₫")
-            } else {
-                sb.append(" — (chưa map sản phẩm)")
+            if (withPrices) {
+                if (it.unitPrice > 0) {
+                    sb.append(" — ").append(priceFormat.format(it.lineTotal)).append("₫")
+                } else {
+                    sb.append(" — (chưa map sản phẩm)")
+                }
             }
         }
-        val total = items.sumOf { it.lineTotal }
-        if (total > 0) sb.append("\n\nTổng: ").append(priceFormat.format(total)).append("₫")
+        if (withPrices) {
+            val total = items.sumOf { it.lineTotal }
+            if (total > 0) sb.append("\n\nTổng: ").append(priceFormat.format(total)).append("₫")
+        }
         return sb.toString()
     }
 
@@ -348,6 +368,7 @@ object OrderExtractor {
         val dialog = Dialog(ctx, R.style.TransparentDialog)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setContentView(view)
+        dialog.setCanceledOnTouchOutside(false)
         dialog.window?.apply {
             setBackgroundDrawable(ColorDrawable(0x00000000))
             val w = (ctx.resources.displayMetrics.widthPixels * 0.94).toInt()
@@ -369,7 +390,7 @@ object OrderExtractor {
             qrLoadedAmount = total
             qrStatus.visibility = View.VISIBLE
             qrStatus.text = "Đang tạo QR..."
-            val url = BankQr.vietQrUrl(ctx, total, "Don $peerName")
+            val url = BankQr.vietQrUrl(ctx, total, "${slug(peerName)}_${todayCompact()}")
             BankQr.loadAsync(url) { bmp ->
                 if (qrLoadedAmount != total) return@loadAsync
                 if (bmp != null) {
@@ -519,15 +540,33 @@ object OrderExtractor {
             dialog.dismiss()
         }
 
+        val btnTransparent = view.findViewById<android.widget.ImageView>(R.id.btnTransparent)
+        val transparentState = booleanArrayOf(false)
+        btnTransparent.setOnClickListener {
+            transparentState[0] = !transparentState[0]
+            view.alpha = if (transparentState[0]) 0.35f else 1f
+            btnTransparent.setImageResource(
+                if (transparentState[0]) R.drawable.ic_visibility_off else R.drawable.ic_visibility
+            )
+        }
+
         view.findViewById<View>(R.id.btnMinimize).setOnClickListener {
             captureContact()
             dialog.dismiss()
             showFloating(ctx)
         }
 
+        val chkCopyWithPrices = view.findViewById<android.widget.CheckBox>(R.id.chkCopyWithPrices)
+        chkCopyWithPrices.isChecked = AppPrefs.isCopyWithPrices(ctx)
+        chkCopyWithPrices.setOnCheckedChangeListener { _, isChecked ->
+            AppPrefs.setCopyWithPrices(ctx, isChecked)
+        }
+
         view.findViewById<Button>(R.id.btnCopy).setOnClickListener {
             captureContact()
-            val orderText = buildOrderText(order.senderName, buildItemsText(order.items),
+            val withPrices = chkCopyWithPrices.isChecked
+            val orderText = buildOrderText(order.senderName,
+                buildItemsText(order.items, withPrices),
                 order.phone, order.address)
             copyTextOnly(ctx, orderText)
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
@@ -548,7 +587,12 @@ object OrderExtractor {
             btnSave.isEnabled = false
             captureContact()
             val itemsText = buildItemsText(validItems)
-            val orderText = buildOrderText(order.senderName, itemsText, order.phone, order.address)
+            val withPrices = chkCopyWithPrices.isChecked
+            val copyItemsText =
+                if (withPrices) itemsText else buildItemsText(validItems, withPrices = false)
+            val orderText = buildOrderText(
+                order.senderName, copyItemsText, order.phone, order.address
+            )
             copyTextOnly(ctx, orderText)
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
 
@@ -574,6 +618,7 @@ object OrderExtractor {
                 pendingOrder = null
                 removeFloating()
                 dialog.dismiss()
+                runCatching { onOrderSaved?.invoke() }
             }.onFailure {
                 Log.e(TAG, "save order fail", it)
                 btnSave.isEnabled = true

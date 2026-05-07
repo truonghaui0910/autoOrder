@@ -3,7 +3,9 @@ package com.autoorder
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -12,7 +14,8 @@ import java.util.Locale
 
 class OrdersAdapter(
     private var items: List<OrderRecord>,
-    private val onClick: (OrderRecord) -> Unit
+    private val onClick: (OrderRecord) -> Unit,
+    private val onTogglePaid: ((OrderRecord) -> Unit)? = null
 ) : RecyclerView.Adapter<OrdersAdapter.VH>() {
 
     private val priceFormat = NumberFormat.getInstance(Locale("vi", "VN"))
@@ -28,6 +31,7 @@ class OrdersAdapter(
         val total: TextView = v.findViewById(R.id.total)
         val meta: TextView = v.findViewById(R.id.meta)
         val preview: TextView = v.findViewById(R.id.preview)
+        val paidIcon: ImageView = v.findViewById(R.id.paidIcon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -44,7 +48,23 @@ class OrdersAdapter(
         if (o.phone.isNotBlank()) parts.add(o.phone)
         holder.meta.text = parts.joinToString(" · ")
         holder.preview.text = o.itemsText.replace("\n\nTổng:", " · Tổng:")
+
+        bindPaidIcon(holder.paidIcon, o.paid)
+        holder.paidIcon.setOnClickListener { onTogglePaid?.invoke(o) }
+
         holder.itemView.setOnClickListener { onClick(o) }
+    }
+
+    private fun bindPaidIcon(iv: ImageView, paid: Boolean) {
+        if (paid) {
+            iv.setImageResource(R.drawable.ic_check_circle)
+            iv.setColorFilter(ContextCompat.getColor(iv.context, android.R.color.holo_green_dark))
+            iv.contentDescription = "Đã thanh toán"
+        } else {
+            iv.setImageResource(R.drawable.ic_radio_off)
+            iv.setColorFilter(0xFF90A4AE.toInt())
+            iv.contentDescription = "Chưa thanh toán"
+        }
     }
 
     override fun getItemCount(): Int = items.size
