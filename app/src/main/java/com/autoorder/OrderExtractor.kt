@@ -417,6 +417,7 @@ object OrderExtractor {
         }
 
         lateinit var renderAll: () -> Unit
+        var applyTransparency: (() -> Unit)? = null
 
         fun bindRow(row: View, idx: Int) {
             val tvProduct = row.findViewById<android.widget.TextView>(R.id.tvProduct)
@@ -501,6 +502,7 @@ object OrderExtractor {
                 bindRow(row, idx)
             }
             updateGrandTotal()
+            applyTransparency?.invoke()
         }
         renderAll()
 
@@ -542,9 +544,125 @@ object OrderExtractor {
 
         val btnTransparent = view.findViewById<android.widget.ImageView>(R.id.btnTransparent)
         val transparentState = booleanArrayOf(false)
+        val rootView = view as android.view.ViewGroup
+        val originalRootBg = rootView.background
+        val originalHeaderBg = rootView.getChildAt(0).background
+        val keepVisibleIds = setOf(R.id.etName, R.id.etAddr, R.id.etPhone, R.id.totalRow, R.id.itemsContainer)
+        val textBgColor = 0xE6FFFFFF.toInt()
+        fun bg(resId: Int) = androidx.core.content.ContextCompat.getDrawable(ctx, resId)
+        fun applyTextBgSpan(tv: android.widget.TextView, on: Boolean) {
+            if (tv.text !is android.text.Spannable) {
+                tv.setText(tv.text, android.widget.TextView.BufferType.SPANNABLE)
+            }
+            val sp = tv.text as? android.text.Spannable ?: return
+            sp.getSpans(0, sp.length, android.text.style.BackgroundColorSpan::class.java)
+                .forEach { sp.removeSpan(it) }
+            if (on && sp.isNotEmpty()) {
+                sp.setSpan(
+                    android.text.style.BackgroundColorSpan(textBgColor),
+                    0, sp.length,
+                    android.text.Spannable.SPAN_INCLUSIVE_INCLUSIVE
+                )
+            }
+        }
+        fun ensureBgSpanWatcher(tv: android.widget.TextView) {
+            if (tv.getTag(R.id.btnTransparent) != null) return
+            if (tv.text !is android.text.Spannable) {
+                tv.setText(tv.text, android.widget.TextView.BufferType.SPANNABLE)
+            }
+            val watcher = object : android.text.TextWatcher {
+                private var inside = false
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    if (inside) return
+                    inside = true
+                    applyTextBgSpan(tv, transparentState[0])
+                    inside = false
+                }
+            }
+            tv.addTextChangedListener(watcher)
+            tv.setTag(R.id.btnTransparent, watcher)
+        }
+        applyTransparency = {
+            val on = transparentState[0]
+            rootView.background = if (on) null else originalRootBg
+            for (i in 0 until rootView.childCount) {
+                val child = rootView.getChildAt(i)
+                when {
+                    i == 0 && child is android.view.ViewGroup -> {
+                        child.background = if (on) null else originalHeaderBg
+                        for (j in 0 until child.childCount) {
+                            val hc = child.getChildAt(j)
+                            if (hc.id != R.id.btnTransparent) hc.alpha = if (on) 0f else 1f
+                        }
+                    }
+                    child is android.widget.ScrollView && child.childCount > 0 -> {
+                        val inner = child.getChildAt(0) as? android.view.ViewGroup ?: continue
+                        for (j in 0 until inner.childCount) {
+                            val c = inner.getChildAt(j)
+                            when {
+                                c.id == R.id.itemsContainer -> {
+                                    val rows = c as android.view.ViewGroup
+                                    for (k in 0 until rows.childCount) {
+                                        val row = rows.getChildAt(k) as? android.view.ViewGroup ?: continue
+                                        row.background = if (on) null else bg(R.drawable.bg_input_field)
+                                        row.findViewById<View>(R.id.btnDelete).alpha = if (on) 0f else 1f
+                                        row.findViewById<View>(R.id.btnMinus).alpha = if (on) 0f else 1f
+                                        row.findViewById<View>(R.id.btnPlus).alpha = if (on) 0f else 1f
+                                        row.findViewById<View>(R.id.etNote).alpha = if (on) 0f else 1f
+                                        val tvProduct = row.findViewById<android.widget.TextView>(R.id.tvProduct)
+                                        val tvLineTotal = row.findViewById<android.widget.TextView>(R.id.tvLineTotal)
+                                        val etQty = row.findViewById<android.widget.EditText>(R.id.etQty)
+                                        if (on) {
+                                            tvProduct.background = null
+                                            tvLineTotal.background = null
+                                            etQty.background = null
+                                            tvProduct.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0)
+                                        } else {
+                                            tvProduct.background = null
+                                            tvLineTotal.background = null
+                                            etQty.background = bg(R.drawable.bg_qty_field)
+                                            tvProduct.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_chevron_right, 0)
+                                        }
+                                        ensureBgSpanWatcher(tvProduct)
+                                        ensureBgSpanWatcher(tvLineTotal)
+                                        ensureBgSpanWatcher(etQty)
+                                        applyTextBgSpan(tvProduct, on)
+                                        applyTextBgSpan(tvLineTotal, on)
+                                        applyTextBgSpan(etQty, on)
+                                    }
+                                }
+                                c.id == R.id.totalRow && c is android.view.ViewGroup -> {
+                                    c.alpha = 1f
+                                    for (m in 0 until c.childCount) {
+                                        val tv = c.getChildAt(m)
+                                        tv.background = null
+                                        if (tv is android.widget.TextView) {
+                                            ensureBgSpanWatcher(tv)
+                                            applyTextBgSpan(tv, on)
+                                        }
+                                    }
+                                }
+                                c.id in keepVisibleIds -> {
+                                    c.alpha = 1f
+                                    c.background = if (on) null else bg(R.drawable.bg_input_field)
+                                    if (c is android.widget.TextView) {
+                                        ensureBgSpanWatcher(c)
+                                        applyTextBgSpan(c, on)
+                                    }
+                                }
+                                else -> c.alpha = if (on) 0f else 1f
+                            }
+                        }
+                    }
+                    else -> child.alpha = if (on) 0f else 1f
+                }
+            }
+        }
         btnTransparent.setOnClickListener {
             transparentState[0] = !transparentState[0]
-            view.alpha = if (transparentState[0]) 0.35f else 1f
+            applyTransparency?.invoke()
             btnTransparent.setImageResource(
                 if (transparentState[0]) R.drawable.ic_visibility_off else R.drawable.ic_visibility
             )
