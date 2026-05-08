@@ -309,7 +309,11 @@ object OrderExtractor {
     private fun formatLineTotal(it: OrderItem): String =
         if (it.unitPrice > 0) priceFormat.format(it.lineTotal) + "₫" else "(chưa map)"
 
-    private fun buildItemsText(items: List<OrderItem>, withPrices: Boolean = true): String {
+    private fun buildItemsText(
+        items: List<OrderItem>,
+        withPrices: Boolean = true,
+        productsById: Map<Long, Product>? = null
+    ): String {
         if (items.isEmpty()) return ""
         val sb = StringBuilder()
         items.forEachIndexed { idx, it ->
@@ -326,7 +330,23 @@ object OrderExtractor {
         }
         if (withPrices) {
             val total = items.sumOf { it.lineTotal }
-            if (total > 0) sb.append("\n\nTổng: ").append(priceFormat.format(total)).append("₫")
+            if (total > 0) {
+                sb.append("\n\nTổng: ").append(priceFormat.format(total)).append("₫")
+                if (productsById != null) {
+                    val byCat = LinkedHashMap<String, Double>()
+                    items.forEach { oi ->
+                        val cat = oi.productId?.let { productsById[it]?.category }
+                            ?.takeIf { c -> c.isNotBlank() } ?: "Khác"
+                        byCat[cat] = (byCat[cat] ?: 0.0) + oi.quantity
+                    }
+                    if (byCat.isNotEmpty()) {
+                        val parts = byCat.entries.joinToString(", ") {
+                            "${it.key}: ${formatQty(it.value)}"
+                        }
+                        sb.append(" (").append(parts).append(")")
+                    }
+                }
+            }
         }
         return sb.toString()
     }
@@ -345,6 +365,7 @@ object OrderExtractor {
         pendingOrder = order
 
         val products = ShopDb(ctx).listProducts(activeOnly = true)
+        val productsById = products.associateBy { it.id }
 
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_order, null, false)
         val etName = view.findViewById<EditText>(R.id.etName)
@@ -684,7 +705,7 @@ object OrderExtractor {
             captureContact()
             val withPrices = chkCopyWithPrices.isChecked
             val orderText = buildOrderText(order.senderName,
-                buildItemsText(order.items, withPrices),
+                buildItemsText(order.items, withPrices, productsById),
                 order.phone, order.address)
             copyTextOnly(ctx, orderText)
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
@@ -706,8 +727,7 @@ object OrderExtractor {
             captureContact()
             val itemsText = buildItemsText(validItems)
             val withPrices = chkCopyWithPrices.isChecked
-            val copyItemsText =
-                if (withPrices) itemsText else buildItemsText(validItems, withPrices = false)
+            val copyItemsText = buildItemsText(validItems, withPrices, productsById)
             val orderText = buildOrderText(
                 order.senderName, copyItemsText, order.phone, order.address
             )

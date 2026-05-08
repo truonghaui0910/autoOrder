@@ -273,6 +273,39 @@
                     android:text="Đã thanh toán" />
             </LinearLayout>
         </HorizontalScrollView>
+
+        <LinearLayout
+            android:id="@+id/searchSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TÌM KIẾM"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#78909C"
+                android:letterSpacing="0.08" />
+
+            <EditText
+                android:id="@+id/etSearch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_input_field"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:hint="Tên / SĐT / địa chỉ"
+                android:textSize="14sp"
+                android:textColor="#212121"
+                android:textColorHint="#90A4AE"
+                android:inputType="text"
+                android:imeOptions="actionSearch"
+                android:singleLine="true" />
+        </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 

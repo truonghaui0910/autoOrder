@@ -243,7 +243,13 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         val totalRevenue: Long
     )
 
-    fun queryOrders(fromDate: String?, toDate: String?, paid: Boolean? = null, limit: Int = 500): List<OrderRecord> {
+    fun queryOrders(
+        fromDate: String?,
+        toDate: String?,
+        paid: Boolean? = null,
+        search: String? = null,
+        limit: Int = 500
+    ): List<OrderRecord> {
         val where = StringBuilder()
         val args = ArrayList<String>()
         if (fromDate != null) { where.append("order_date >= ?"); args.add(fromDate) }
@@ -254,6 +260,13 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         if (paid != null) {
             if (where.isNotEmpty()) where.append(" AND ")
             where.append("paid = ?"); args.add(if (paid) "1" else "0")
+        }
+        val q = search?.trim().orEmpty()
+        if (q.isNotEmpty()) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("(LOWER(sender_name) LIKE ? OR LOWER(conv_name) LIKE ? OR LOWER(phone) LIKE ? OR LOWER(address) LIKE ?)")
+            val like = "%" + q.lowercase() + "%"
+            repeat(4) { args.add(like) }
         }
         val sql = StringBuilder(
             "SELECT id, created_at, order_date, conv_name, sender_name, phone, address, " +
@@ -286,7 +299,12 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         return out
     }
 
-    fun summary(fromDate: String?, toDate: String?, paid: Boolean? = null): OrderSummary {
+    fun summary(
+        fromDate: String?,
+        toDate: String?,
+        paid: Boolean? = null,
+        search: String? = null
+    ): OrderSummary {
         val where = StringBuilder()
         val args = ArrayList<String>()
         if (fromDate != null) { where.append("o.order_date >= ?"); args.add(fromDate) }
@@ -298,6 +316,13 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
             if (where.isNotEmpty()) where.append(" AND ")
             where.append("o.paid = ?"); args.add(if (paid) "1" else "0")
         }
+        val q = search?.trim().orEmpty()
+        if (q.isNotEmpty()) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("(LOWER(o.sender_name) LIKE ? OR LOWER(o.conv_name) LIKE ? OR LOWER(o.phone) LIKE ? OR LOWER(o.address) LIKE ?)")
+            val like = "%" + q.lowercase() + "%"
+            repeat(4) { args.add(like) }
+        }
         val sql = StringBuilder(
             "SELECT COUNT(DISTINCT o.id), COALESCE(SUM(o.total_amount), 0), " +
                 "COALESCE((SELECT SUM(oi.quantity) FROM $T_OI oi " +
@@ -308,6 +333,10 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 where.toString()
                     .replace("o.order_date", "o2.order_date")
                     .replace("o.paid", "o2.paid")
+                    .replace("o.sender_name", "o2.sender_name")
+                    .replace("o.conv_name", "o2.conv_name")
+                    .replace("o.phone", "o2.phone")
+                    .replace("o.address", "o2.address")
             )
         }
         sql.append("), 0) FROM $T_ORD o")
@@ -358,7 +387,12 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         return out
     }
 
-    fun ordersPerDay(fromDate: String?, toDate: String?, paid: Boolean? = null): List<Pair<String, Int>> {
+    fun ordersPerDay(
+        fromDate: String?,
+        toDate: String?,
+        paid: Boolean? = null,
+        search: String? = null
+    ): List<Pair<String, Int>> {
         val where = StringBuilder()
         val args = ArrayList<String>()
         if (fromDate != null) { where.append("order_date >= ?"); args.add(fromDate) }
@@ -369,6 +403,13 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         if (paid != null) {
             if (where.isNotEmpty()) where.append(" AND ")
             where.append("paid = ?"); args.add(if (paid) "1" else "0")
+        }
+        val q = search?.trim().orEmpty()
+        if (q.isNotEmpty()) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("(LOWER(sender_name) LIKE ? OR LOWER(conv_name) LIKE ? OR LOWER(phone) LIKE ? OR LOWER(address) LIKE ?)")
+            val like = "%" + q.lowercase() + "%"
+            repeat(4) { args.add(like) }
         }
         val sql = StringBuilder("SELECT order_date, COUNT(*) FROM $T_ORD")
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)

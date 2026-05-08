@@ -57,6 +57,9 @@ class OrdersActivity : AppCompatActivity() {
 
     private lateinit var dateFromView: TextView
     private lateinit var dateToView: TextView
+    private lateinit var etSearch: android.widget.EditText
+    private lateinit var searchSection: View
+    private var searchQuery: String = ""
     private lateinit var filterBody: View
     private lateinit var filterChevron: ImageView
     private lateinit var filterSummary: TextView
@@ -114,6 +117,49 @@ class OrdersActivity : AppCompatActivity() {
         dateToView = findViewById(R.id.dateTo)
         dateFromView.setOnClickListener { pickDate(true) }
         dateToView.setOnClickListener { pickDate(false) }
+
+        etSearch = findViewById(R.id.etSearch)
+        searchSection = findViewById(R.id.searchSection)
+        val clearIcon = androidx.core.content.ContextCompat
+            .getDrawable(this, R.drawable.ic_close)?.mutate()?.also {
+                it.setTint(0xFF90A4AE.toInt())
+                val size = (18 * resources.displayMetrics.density).toInt()
+                it.setBounds(0, 0, size, size)
+            }
+        fun updateClearIcon() {
+            val show = etSearch.text.isNotEmpty()
+            etSearch.setCompoundDrawables(null, null, if (show) clearIcon else null, null)
+            etSearch.compoundDrawablePadding =
+                (6 * resources.displayMetrics.density).toInt()
+        }
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                updateClearIcon()
+                val newQ = s?.toString()?.trim().orEmpty()
+                if (newQ != searchQuery) {
+                    searchQuery = newQ
+                    refresh()
+                }
+            }
+        })
+        etSearch.setOnTouchListener { _, ev ->
+            if (ev.action == android.view.MotionEvent.ACTION_UP) {
+                val drawable = etSearch.compoundDrawables[2]
+                if (drawable != null) {
+                    val iconW = drawable.bounds.width()
+                    val threshold = etSearch.width - etSearch.paddingEnd - iconW
+                    if (ev.x >= threshold) {
+                        etSearch.setText("")
+                        etSearch.performClick()
+                        return@setOnTouchListener true
+                    }
+                }
+            }
+            false
+        }
+        updateClearIcon()
 
         paidChips.add(findViewById<TextView>(R.id.chipPaidAll))
         paidChips.add(findViewById<TextView>(R.id.chipUnpaid))
@@ -273,8 +319,14 @@ class OrdersActivity : AppCompatActivity() {
             Tab.PRODUCTS -> soldAdapter
             Tab.CUSTOMERS -> customersAdapter
         }
+        if (::searchSection.isInitialized) {
+            searchSection.visibility = if (t == Tab.ORDERS) View.VISIBLE else View.GONE
+        }
         refresh()
     }
+
+    private fun searchArg(): String? =
+        if (tab == Tab.ORDERS && searchQuery.isNotBlank()) searchQuery else null
 
     private fun rangeFor(p: Period): Pair<String?, String?> {
         val now = System.currentTimeMillis()
@@ -310,7 +362,8 @@ class OrdersActivity : AppCompatActivity() {
         if (period == Period.CUSTOM) updateDateLabels(from, to)
         if (::filterSummary.isInitialized) updateFilterSummary()
         val paid = paidArg()
-        val s = db.summary(from, to, paid)
+        val search = searchArg()
+        val s = db.summary(from, to, paid, search)
         statOrders.text = s.orderCount.toString()
         statRevenue.text = priceFormat.format(s.totalRevenue) + "₫"
         val q = s.totalItems
@@ -319,7 +372,7 @@ class OrdersActivity : AppCompatActivity() {
         if (::chart.isInitialized && chartMode) {
             list.visibility = View.GONE
             chart.visibility = View.VISIBLE
-            renderChart(from, to, paid)
+            renderChart(from, to, paid, search)
             return
         }
         if (::chart.isInitialized) {
@@ -329,7 +382,7 @@ class OrdersActivity : AppCompatActivity() {
 
         when (tab) {
             Tab.ORDERS -> {
-                val rows = db.queryOrders(from, to, paid, limit = 500)
+                val rows = db.queryOrders(from, to, paid, search, limit = 500)
                 ordersAdapter.submit(rows)
                 emptyView.text = "Chưa có đơn nào trong khoảng đã chọn"
                 emptyView.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
@@ -349,11 +402,11 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderChart(from: String?, to: String?, paid: Boolean?) {
+    private fun renderChart(from: String?, to: String?, paid: Boolean?, search: String? = null) {
         emptyView.visibility = View.GONE
         when (tab) {
             Tab.ORDERS -> {
-                val data = db.ordersPerDay(from, to, paid)
+                val data = db.ordersPerDay(from, to, paid, search)
                 val barLabelFormat = SimpleDateFormat("dd/MM", Locale("vi", "VN")).apply {
                     timeZone = tz
                 }
