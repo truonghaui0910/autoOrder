@@ -325,6 +325,94 @@ internal const val ZALO_OBSERVER_JS = """
     for (var i = 0; i < items.length; i++) reportConvItem(items[i]);
   };
 
+  function parseHoursAgoFromText(text) {
+    var t = (text || '').trim().toLowerCase();
+    if (!t) return Infinity;
+    if (t.indexOf('vài giây') >= 0 || t === 'bây giờ') return 0;
+    var m = t.match(/(\d+)\s*giây/); if (m) return parseInt(m[1], 10) / 3600;
+    m = t.match(/(\d+)\s*phút/); if (m) return parseInt(m[1], 10) / 60;
+    m = t.match(/(\d+)\s*giờ/); if (m) return parseInt(m[1], 10);
+    if (t.indexOf('hôm qua') >= 0) return 36;
+    return Infinity;
+  }
+
+  function findSidebarScrollable() {
+    var items = document.querySelectorAll('.msg-item');
+    if (!items.length) return null;
+    var el = items[0].parentElement;
+    while (el && el !== document.body) {
+      try {
+        var cs = window.getComputedStyle(el);
+        var ovy = cs.overflowY;
+        if ((ovy === 'auto' || ovy === 'scroll') && el.scrollHeight > el.clientHeight + 4) {
+          return el;
+        }
+      } catch (e) {}
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  window.__autoOrderScanRecent = function(hours) {
+    var cutoff = (typeof hours === 'number' && hours > 0) ? hours : 24;
+    var seen = {};
+
+    function reportRendered() {
+      var items = document.querySelectorAll('.msg-item');
+      var oldest = -1;
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        var animId = it.getAttribute('anim-data-id') || '';
+        if (!seen[animId]) {
+          seen[animId] = 1;
+          reportConvItem(it);
+        }
+        if (classifyConv(it) !== '1on1') continue;
+        var te = it.querySelector('.preview-time');
+        var tt = te ? (te.innerText || '').trim() : '';
+        var h = parseHoursAgoFromText(tt);
+        if (h > oldest) oldest = h;
+      }
+      return oldest;
+    }
+
+    var scroller = findSidebarScrollable();
+    var attempts = 0;
+    var stableCount = 0;
+    var lastH = -1;
+
+    function done(reason) {
+      AutoOrderBridge.onDump('scan-recent', '',
+        'reason=' + reason + ' attempts=' + attempts + ' cutoff=' + cutoff + 'h', '');
+      try { AutoOrderBridge.onScanDone(); } catch (e) {}
+    }
+
+    function step() {
+      attempts++;
+      var oldest = reportRendered();
+      if (oldest >= cutoff) { done('cutoff-reached oldest=' + oldest); return; }
+      if (attempts > 200) { done('max-attempts'); return; }
+      if (!scroller) { done('no-scroller'); return; }
+      var prevH = scroller.scrollHeight;
+      var prevTop = scroller.scrollTop;
+      try {
+        scroller.scrollTop = scroller.scrollHeight;
+        scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+      } catch (e) {}
+      setTimeout(function() {
+        if (scroller.scrollHeight === prevH && scroller.scrollTop <= prevTop + 1) {
+          stableCount++;
+          if (stableCount >= 4) { reportRendered(); done('no-more-content'); return; }
+        } else {
+          stableCount = 0;
+        }
+        step();
+      }, 600);
+    }
+
+    step();
+  };
+
   window.__autoOrderDump = function() {
     AutoOrderBridge.onDump('dump-begin', location.href, '', '');
     var items = document.querySelectorAll('.msg-item');

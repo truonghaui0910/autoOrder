@@ -125,16 +125,36 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <Button
-                android:id="@+id/btnConfirm"
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
                 android:layout_marginTop="14dp"
-                android:text="Chốt"
-                android:textColor="#FFFFFF"
-                android:textAllCaps="false"
-                android:textStyle="bold"
-                android:background="@drawable/bg_btn_primary" />
+                android:weightSum="2">
+
+                <Button
+                    android:id="@+id/btnReadMessages"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="44dp"
+                    android:text="Đọc Tin Nhắn"
+                    android:textColor="#FFFFFF"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_btn_primary" />
+
+                <Button
+                    android:id="@+id/btnAnalyze"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:text="Phân Tích"
+                    android:textColor="#1E88E5"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_btn_outline" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/tvStatus"

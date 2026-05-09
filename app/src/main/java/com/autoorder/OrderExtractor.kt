@@ -82,7 +82,8 @@ object OrderExtractor {
         val items: List<OrderItem>,
         val rawJson: String,
         val zaloId: String = "",
-        val matched: Boolean = false
+        val matched: Boolean = false,
+        val avatarUrl: String = ""
     )
 
     private const val BATCH_CHUNK_SIZE = 10
@@ -119,7 +120,11 @@ object OrderExtractor {
                     val raw = callClaudeBatch(chunk.toString(), products, productsById)
                     val withZalo = raw.map { o ->
                         val zc = msgDb.getZaloChatByName(o.customerName)
-                        if (zc != null) o.copy(zaloId = zc.zaloId, matched = true) else o
+                        if (zc != null) o.copy(
+                            zaloId = zc.zaloId,
+                            matched = true,
+                            avatarUrl = zc.avatarUrl
+                        ) else o
                     }
                     accumulated.addAll(withZalo)
                     if (onProgress != null) {

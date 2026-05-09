@@ -10,9 +10,13 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -25,13 +29,23 @@ class ZaloChatsActivity : AppCompatActivity() {
     companion object {
         private val CHAT_TYPES = listOf("normal", "customer", "order")
         private val STATUSES = listOf("active", "inactive")
+        private val SORT_LABELS = listOf(
+            "Tin mới nhất",
+            "Tin cũ nhất",
+            "Tên A→Z",
+            "Tên Z→A"
+        )
     }
 
     private lateinit var adapter: ZaloChatsAdapter
     private lateinit var list: RecyclerView
     private lateinit var headerCount: TextView
     private lateinit var emptyView: View
+    private lateinit var etSearch: EditText
+    private lateinit var spSort: Spinner
     private lateinit var db: MessagesDb
+
+    private var allRows: List<ZaloChat> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +55,21 @@ class ZaloChatsActivity : AppCompatActivity() {
         list = findViewById(R.id.list)
         headerCount = findViewById(R.id.headerCount)
         emptyView = findViewById(R.id.emptyView)
+        etSearch = findViewById(R.id.etSearch)
+        spSort = findViewById(R.id.spSort)
+
+        spSort.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, SORT_LABELS
+        )
+        spSort.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = applyFilters()
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) = applyFilters()
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        })
 
         val sw = resources.configuration.smallestScreenWidthDp
         val cols = when {
@@ -62,17 +91,81 @@ class ZaloChatsActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        val rows = db.listZaloChats()
-        adapter.submit(rows)
-        headerCount.text = "${rows.size} chat"
-        emptyView.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
-        list.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
+        allRows = db.listZaloChats()
+        applyFilters()
+    }
+
+    private fun applyFilters() {
+        val q = etSearch.text.toString().trim().lowercase()
+        val filtered = if (q.isBlank()) allRows
+        else allRows.filter {
+            it.name.lowercase().contains(q) || it.zaloId.lowercase().contains(q)
+        }
+        val sorted = when (spSort.selectedItemPosition) {
+            1 -> filtered.sortedBy { it.lastMsgAt }
+            2 -> filtered.sortedBy { it.name.lowercase() }
+            3 -> filtered.sortedByDescending { it.name.lowercase() }
+            else -> filtered.sortedByDescending { it.lastMsgAt }
+        }
+        adapter.submit(sorted)
+        headerCount.text = if (q.isBlank()) "${sorted.size} chat"
+        else "${sorted.size}/${allRows.size} chat"
+        emptyView.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
+        list.visibility = if (sorted.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun syncNow() {
-        if (ChatWebActivity.requestScanConvs()) {
-            Toast.makeText(this, "Đang đồng bộ từ Zalo Web...", Toast.LENGTH_SHORT).show()
-            Handler(Looper.getMainLooper()).postDelayed({ refresh() }, 1500)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, 0)
+        }
+        val tv = TextView(this).apply {
+            text = "Số giờ tin nhắn cuối (để trống = chỉ quét những conv đang hiển thị):"
+            textSize = 13f
+            setTextColor(0xFF455A64.toInt())
+        }
+        val etHours = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            hint = "VD: 24"
+            setText("24")
+            setSelection(text.length)
+        }
+        container.addView(tv)
+        container.addView(etHours)
+
+        AlertDialog.Builder(this)
+            .setTitle("Đồng bộ Zalo chat")
+            .setView(container)
+            .setNegativeButton("Huỷ", null)
+            .setPositiveButton("Đồng bộ") { _, _ ->
+                val hours = etHours.text.toString().trim().toDoubleOrNull() ?: 0.0
+                runSync(hours)
+            }
+            .show()
+    }
+
+    private fun runSync(hours: Double) {
+        val started = if (hours > 0) {
+            ChatWebActivity.requestScanConvsRecent(hours) {
+                runOnUiThread {
+                    Toast.makeText(this, "Đồng bộ xong", Toast.LENGTH_SHORT).show()
+                    refresh()
+                }
+            }
+        } else {
+            val ok = ChatWebActivity.requestScanConvs()
+            if (ok) Handler(Looper.getMainLooper()).postDelayed({ refresh() }, 1500)
+            ok
+        }
+        if (started) {
+            Toast.makeText(
+                this,
+                if (hours > 0) "Đang scroll & đồng bộ ${hours}h gần nhất..."
+                else "Đang đồng bộ từ Zalo Web...",
+                Toast.LENGTH_SHORT
+            ).show()
         } else {
             AlertDialog.Builder(this)
                 .setTitle("Chat Web chưa mở")

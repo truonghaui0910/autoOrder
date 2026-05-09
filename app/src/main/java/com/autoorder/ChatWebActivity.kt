@@ -20,6 +20,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import coil.load
 import java.util.concurrent.Executors
 
 class ChatWebActivity : AppCompatActivity() {
@@ -34,6 +35,12 @@ class ChatWebActivity : AppCompatActivity() {
         fun requestScanConvs(): Boolean {
             val act = liveInstance?.get() ?: return false
             act.runOnUiThread { act.triggerScanConvs() }
+            return true
+        }
+
+        fun requestScanConvsRecent(hours: Double, onDone: () -> Unit): Boolean {
+            val act = liveInstance?.get() ?: return false
+            act.runOnUiThread { act.triggerScanConvsRecent(hours, onDone) }
             return true
         }
 
@@ -225,6 +232,15 @@ class ChatWebActivity : AppCompatActivity() {
         )
     }
 
+    private var scanRecentDone: (() -> Unit)? = null
+
+    fun triggerScanConvsRecent(hours: Double, onDone: () -> Unit) {
+        scanRecentDone = onDone
+        webView.evaluateJavascript(
+            "window.__autoOrderScanRecent && window.__autoOrderScanRecent($hours);", null
+        )
+    }
+
     private var checkoutCallback: ((String, String, String) -> Unit)? = null
     private var checkoutDialog: android.app.Dialog? = null
 
@@ -269,9 +285,11 @@ class ChatWebActivity : AppCompatActivity() {
         val view = layoutInflater.inflate(R.layout.dialog_checkout, null, false)
         val spChat = view.findViewById<android.widget.Spinner>(R.id.spChat)
         val tvDate = view.findViewById<TextView>(R.id.tvDate)
-        val btnConfirm = view.findViewById<android.widget.Button>(R.id.btnConfirm)
+        val btnRead = view.findViewById<android.widget.Button>(R.id.btnReadMessages)
+        val btnAnalyze = view.findViewById<android.widget.Button>(R.id.btnAnalyze)
         val btnDismiss = view.findViewById<View>(R.id.btnDismiss)
         val btnMinimize = view.findViewById<View>(R.id.btnMinimize)
+        btnAnalyze.isEnabled = false
         val tvStatus = view.findViewById<TextView>(R.id.tvStatus)
         val tvMessagesLabel = view.findViewById<TextView>(R.id.tvMessagesLabel)
         val messagesContainer = view.findViewById<android.widget.LinearLayout>(R.id.messagesContainer)
@@ -317,7 +335,111 @@ class ChatWebActivity : AppCompatActivity() {
         checkoutDialog = dialog
         setBottomBarItemActive(R.id.btnCheckout, true)
 
-        btnConfirm.setOnClickListener {
+        var texts: List<String> = emptyList()
+        var timesMs: List<Long> = emptyList()
+        val ordersByIndex = LinkedHashMap<Int, OrderExtractor.BatchOrder>()
+        val loadingIndices = mutableSetOf<Int>()
+        val analyzedIndices = mutableSetOf<Int>()
+        var currentChatName = ""
+        var currentDate = ""
+
+        fun updateStatus() {
+            val totalOrders = ordersByIndex.size
+            val matched = ordersByIndex.values.count { it.matched }
+            val pending = (texts.indices).count { it !in analyzedIndices && it !in loadingIndices }
+            val loading = loadingIndices.size
+            val parts = mutableListOf("$currentChatName · $currentDate · ${texts.size} tin")
+            parts += "$totalOrders đơn ($matched khớp)"
+            if (loading > 0) parts += "đang phân tích $loading"
+            if (pending > 0 && loading == 0) parts += "$pending chưa phân tích"
+            tvStatus.text = parts.joinToString(" · ")
+        }
+
+        lateinit var rerender: () -> Unit
+        lateinit var analyzeOne: (Int) -> Unit
+        lateinit var analyzeMany: (List<Int>) -> Unit
+
+        rerender = {
+            renderPairedRows(
+                messagesContainer, texts, timesMs,
+                ordersByIndex, loadingIndices, analyzedIndices, analyzeOne
+            )
+            btnAnalyze.isEnabled = texts.isNotEmpty() &&
+                (texts.indices).any { it !in analyzedIndices && it !in loadingIndices }
+            updateStatus()
+        }
+
+        analyzeOne = { idx ->
+            if (idx in 0 until texts.size && idx !in loadingIndices) {
+                loadingIndices.add(idx)
+                ordersByIndex.remove(idx)
+                rerender()
+                val input = org.json.JSONArray()
+                    .put(org.json.JSONObject().put("index", idx).put("text", texts[idx]))
+                    .toString()
+                OrderExtractor.analyzeBatchOrders(this, input, onProgress = null) { result ->
+                    loadingIndices.remove(idx)
+                    analyzedIndices.add(idx)
+                    result.onSuccess { orders ->
+                        orders.firstOrNull { it.messageIndex == idx }?.let {
+                            ordersByIndex[idx] = it
+                        }
+                    }.onFailure { e ->
+                        Log.e(TAG, "analyzeOne fail idx=$idx", e)
+                        analyzedIndices.remove(idx)
+                        Toast.makeText(this, "Lỗi AI: ${e.message ?: "?"}", Toast.LENGTH_SHORT).show()
+                    }
+                    rerender()
+                }
+            }
+        }
+
+        analyzeMany = { indices ->
+            if (indices.isEmpty()) {
+                Toast.makeText(this, "Không còn tin nào cần phân tích", Toast.LENGTH_SHORT).show()
+            } else {
+                indices.forEach {
+                    loadingIndices.add(it)
+                    ordersByIndex.remove(it)
+                }
+                rerender()
+                val input = org.json.JSONArray().apply {
+                    indices.forEach { i ->
+                        put(org.json.JSONObject().put("index", i).put("text", texts[i]))
+                    }
+                }.toString()
+                btnAnalyze.isEnabled = false
+                OrderExtractor.analyzeBatchOrders(
+                    this, input,
+                    onProgress = { partial, done, totalChunks ->
+                        val doneIndices = indices.take(done * 10)
+                        doneIndices.forEach {
+                            loadingIndices.remove(it)
+                            analyzedIndices.add(it)
+                        }
+                        partial.forEach { ord ->
+                            if (ord.messageIndex in doneIndices) ordersByIndex[ord.messageIndex] = ord
+                        }
+                        tvStatus.text = "$currentChatName · $currentDate · ${texts.size} tin · AI $done/$totalChunks"
+                        rerender()
+                    }
+                ) { result ->
+                    indices.forEach { loadingIndices.remove(it) }
+                    result.onSuccess { orders ->
+                        indices.forEach { analyzedIndices.add(it) }
+                        orders.forEach { ord ->
+                            if (ord.messageIndex in indices) ordersByIndex[ord.messageIndex] = ord
+                        }
+                    }.onFailure { e ->
+                        Log.e(TAG, "analyzeBatchOrders fail", e)
+                        Toast.makeText(this, "Lỗi AI: ${e.message ?: "?"}", Toast.LENGTH_SHORT).show()
+                    }
+                    rerender()
+                }
+            }
+        }
+
+        btnRead.setOnClickListener {
             val pos = spChat.selectedItemPosition
             if (pos < 0 || pos >= chats.size) return@setOnClickListener
             val chat = chats[pos]
@@ -332,17 +454,41 @@ class ChatWebActivity : AppCompatActivity() {
                 set(java.util.Calendar.MILLISECOND, 0)
             }).timeInMillis
             val dayEnd = dayStart + 24L * 60L * 60L * 1000L - 1L
+            currentChatName = chat.name.ifBlank { zaloId }
+            currentDate = pickedDate
             tvStatus.visibility = View.VISIBLE
-            tvStatus.text = "Đang đọc tin nhắn của ${chat.name.ifBlank { zaloId }}..."
+            tvStatus.text = "Đang đọc tin nhắn của $currentChatName..."
             tvMessagesLabel.visibility = View.GONE
             messagesContainer.removeAllViews()
-            btnConfirm.isEnabled = false
+            texts = emptyList(); timesMs = emptyList()
+            ordersByIndex.clear(); loadingIndices.clear(); analyzedIndices.clear()
+            btnRead.isEnabled = false
+            btnAnalyze.isEnabled = false
 
             checkoutCallback = cb@{ animId, status, json ->
-                btnConfirm.isEnabled = true
+                btnRead.isEnabled = true
                 if (animId != zaloId) return@cb
                 when (status) {
-                    "OK" -> renderCheckoutMessages(messagesContainer, tvStatus, tvMessagesLabel, json, pickedDate, chat.name)
+                    "OK" -> {
+                        val arr = runCatching { org.json.JSONArray(json) }.getOrNull()
+                        if (arr == null || arr.length() == 0) {
+                            tvMessagesLabel.visibility = View.GONE
+                            tvStatus.text = "Không có tin nhắn nào trong hội thoại."
+                            return@cb
+                        }
+                        val newTexts = ArrayList<String>(arr.length())
+                        val newTimesMs = ArrayList<Long>(arr.length())
+                        for (k in 0 until arr.length()) {
+                            val o = arr.optJSONObject(k) ?: continue
+                            newTexts.add(o.optString("text"))
+                            newTimesMs.add(o.optString("time").toLongOrNull() ?: 0L)
+                        }
+                        texts = newTexts
+                        timesMs = newTimesMs
+                        tvMessagesLabel.visibility = View.VISIBLE
+                        tvMessagesLabel.text = "Tin nhắn  /  Đơn hàng AI"
+                        rerender()
+                    }
                     "NOT_FOUND" -> {
                         tvMessagesLabel.visibility = View.GONE
                         tvStatus.text = "Không tìm thấy hội thoại trong sidebar (cuộn sidebar Zalo để load)."
@@ -365,6 +511,13 @@ class ChatWebActivity : AppCompatActivity() {
             )
         }
 
+        btnAnalyze.setOnClickListener {
+            val pending = (texts.indices).filter {
+                it !in analyzedIndices && it !in loadingIndices
+            }
+            analyzeMany(pending)
+        }
+
         dialog.setOnDismissListener {
             checkoutCallback = null
             if (checkoutDialog === dialog) {
@@ -375,68 +528,14 @@ class ChatWebActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun renderCheckoutMessages(
-        container: android.widget.LinearLayout,
-        status: TextView,
-        label: TextView,
-        json: String,
-        pickedDate: String,
-        chatName: String
-    ) {
-        val arr = runCatching { org.json.JSONArray(json) }.getOrNull()
-        if (arr == null || arr.length() == 0) {
-            label.visibility = View.GONE
-            status.text = "Không có tin nhắn nào trong hội thoại."
-            return
-        }
-        label.visibility = View.VISIBLE
-        label.text = "Tin nhắn  /  Đơn hàng AI"
-
-        val texts = ArrayList<String>(arr.length())
-        val timesMs = ArrayList<Long>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            texts.add(o.optString("text"))
-            timesMs.add(o.optString("time").toLongOrNull() ?: 0L)
-        }
-
-        renderPairedRows(container, texts, timesMs, emptyList(), 0)
-        status.text = "${chatName} · $pickedDate · ${texts.size} tin · đang phân tích AI..."
-
-        val aiInput = org.json.JSONArray().apply {
-            texts.forEachIndexed { i, t ->
-                put(org.json.JSONObject().put("index", i).put("text", t))
-            }
-        }.toString()
-
-        OrderExtractor.analyzeBatchOrders(
-            this,
-            aiInput,
-            onProgress = { partial, done, totalChunks ->
-                val matched = partial.count { it.matched }
-                val analyzed = minOf(done * 10, texts.size)
-                status.text = "${chatName} · $pickedDate · ${texts.size} tin · AI $done/$totalChunks · ${partial.size} đơn (${matched} khớp)"
-                renderPairedRows(container, texts, timesMs, partial, analyzed)
-            }
-        ) { result ->
-            result.onSuccess { orders ->
-                val matched = orders.count { it.matched }
-                status.text = "${chatName} · $pickedDate · ${texts.size} tin · ${orders.size} đơn (${matched} khớp Zalo)"
-                renderPairedRows(container, texts, timesMs, orders, texts.size)
-            }.onFailure { e ->
-                Log.e(TAG, "analyzeBatchOrders fail", e)
-                status.text = "Lỗi AI: ${e.message ?: "Unknown"}"
-                renderPairedRows(container, texts, timesMs, emptyList(), texts.size)
-            }
-        }
-    }
-
     private fun renderPairedRows(
         container: android.widget.LinearLayout,
         texts: List<String>,
         timesMs: List<Long>,
-        orders: List<OrderExtractor.BatchOrder>,
-        analyzedCount: Int
+        ordersByIndex: Map<Int, OrderExtractor.BatchOrder>,
+        loadingIndices: Set<Int>,
+        analyzedIndices: Set<Int>,
+        onAnalyzeOne: (Int) -> Unit
     ) {
         container.removeAllViews()
         val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).apply {
@@ -447,8 +546,6 @@ class ChatWebActivity : AppCompatActivity() {
         val padV = (8 * density).toInt()
         val marginV = (6 * density).toInt()
         val gap = (8 * density).toInt()
-
-        val ordersByIndex = orders.groupBy { it.messageIndex }
 
         for (i in texts.indices) {
             val row = android.widget.LinearLayout(this)
@@ -507,33 +604,66 @@ class ChatWebActivity : AppCompatActivity() {
             rightLp.marginStart = gap / 2
             rightCol.layoutParams = rightLp
 
-            val ordersForMsg = ordersByIndex[i].orEmpty()
-            val pending = i >= analyzedCount
-            if (pending) {
-                rightCol.addView(buildLoadingCard(padH, padV, density))
-            } else if (ordersForMsg.isEmpty()) {
-                val placeholder = TextView(this)
-                placeholder.text = "(không phải đơn)"
-                placeholder.setPadding(padH, padV, padH, padV)
-                placeholder.textSize = 11f
-                placeholder.setTextColor(0xFF90A4AE.toInt())
-                placeholder.background = androidx.core.content.ContextCompat.getDrawable(
-                    this, R.drawable.bg_input_field
-                )
-                rightCol.addView(placeholder, android.widget.LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ))
-            } else {
-                ordersForMsg.forEach { ord ->
-                    rightCol.addView(buildOrderCard(ord, padH, padV, density))
+            val isLoading = i in loadingIndices
+            val isAnalyzed = i in analyzedIndices
+            val order = ordersByIndex[i]
+            when {
+                isLoading -> rightCol.addView(buildLoadingCard(padH, padV, density))
+                isAnalyzed && order != null -> {
+                    rightCol.addView(buildOrderCard(order, padH, padV, density))
+                    rightCol.addView(buildAnalyzeButton(i, "↻ Phân tích lại", density, onAnalyzeOne))
                 }
+                isAnalyzed -> {
+                    val placeholder = TextView(this)
+                    placeholder.text = "(không phải đơn)"
+                    placeholder.setPadding(padH, padV, padH, padV)
+                    placeholder.textSize = 11f
+                    placeholder.setTextColor(0xFF90A4AE.toInt())
+                    placeholder.background = androidx.core.content.ContextCompat.getDrawable(
+                        this, R.drawable.bg_input_field
+                    )
+                    rightCol.addView(placeholder, android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ))
+                    rightCol.addView(buildAnalyzeButton(i, "↻ Phân tích lại", density, onAnalyzeOne))
+                }
+                else -> rightCol.addView(buildAnalyzeButton(i, "Phân tích", density, onAnalyzeOne))
             }
 
             row.addView(leftCol)
             row.addView(rightCol)
             container.addView(row)
         }
+    }
+
+    private fun buildAnalyzeButton(
+        index: Int,
+        text: String,
+        density: Float,
+        onAnalyzeOne: (Int) -> Unit
+    ): View {
+        val btn = android.widget.Button(this)
+        btn.text = text
+        btn.textSize = 11f
+        btn.isAllCaps = false
+        btn.setTextColor(0xFF1E88E5.toInt())
+        btn.background = androidx.core.content.ContextCompat.getDrawable(
+            this, R.drawable.bg_btn_outline
+        )
+        val padH = (10 * density).toInt()
+        val padV = (4 * density).toInt()
+        btn.setPadding(padH, padV, padH, padV)
+        btn.minHeight = (32 * density).toInt()
+        btn.minimumHeight = (32 * density).toInt()
+        val lp = android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            (32 * density).toInt()
+        )
+        lp.topMargin = (4 * density).toInt()
+        btn.layoutParams = lp
+        btn.setOnClickListener { onAnalyzeOne(index) }
+        return btn
     }
 
     private fun buildLoadingCard(padH: Int, padV: Int, density: Float): View {
@@ -586,13 +716,62 @@ class ChatWebActivity : AppCompatActivity() {
 
         val priceFmt = java.text.NumberFormat.getInstance(java.util.Locale("vi", "VN"))
 
-        val title = TextView(this)
         val nameLabel = ord.customerName.ifBlank { "(không tên)" }
-        title.text = if (ord.matched) "✓ $nameLabel" else "⚠ $nameLabel"
-        title.setTextColor(if (ord.matched) 0xFF1E88E5.toInt() else 0xFFEF6C00.toInt())
-        title.textSize = 12f
-        title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
-        card.addView(title)
+        if (ord.matched) {
+            val header = android.widget.LinearLayout(this)
+            header.orientation = android.widget.LinearLayout.HORIZONTAL
+            header.gravity = android.view.Gravity.CENTER_VERTICAL
+
+            val avatarSize = (24 * density).toInt()
+            val avatar = android.widget.ImageView(this)
+            val avLp = android.widget.LinearLayout.LayoutParams(avatarSize, avatarSize)
+            avLp.marginEnd = (6 * density).toInt()
+            avatar.layoutParams = avLp
+            avatar.setBackgroundResource(R.drawable.bg_avatar_placeholder)
+            if (ord.avatarUrl.isNotBlank()) {
+                avatar.load(ord.avatarUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.bg_avatar_placeholder)
+                    error(R.drawable.bg_avatar_placeholder)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            header.addView(avatar)
+
+            val nameCol = android.widget.LinearLayout(this)
+            nameCol.orientation = android.widget.LinearLayout.VERTICAL
+            val nameColLp = android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            )
+            nameCol.layoutParams = nameColLp
+
+            val title = TextView(this)
+            title.text = "✓ $nameLabel"
+            title.setTextColor(0xFF1E88E5.toInt())
+            title.textSize = 12f
+            title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
+            title.maxLines = 1
+            title.ellipsize = android.text.TextUtils.TruncateAt.END
+            nameCol.addView(title)
+
+            val zid = TextView(this)
+            zid.text = ord.zaloId
+            zid.textSize = 9f
+            zid.setTextColor(0xFF90A4AE.toInt())
+            zid.maxLines = 1
+            zid.ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            nameCol.addView(zid)
+
+            header.addView(nameCol)
+            card.addView(header)
+        } else {
+            val title = TextView(this)
+            title.text = "⚠ $nameLabel"
+            title.setTextColor(0xFFEF6C00.toInt())
+            title.textSize = 12f
+            title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
+            card.addView(title)
+        }
 
         ord.items.forEach { it ->
             val tv = TextView(this)
@@ -788,6 +967,15 @@ class ChatWebActivity : AppCompatActivity() {
         fun onCheckoutMessages(animId: String, status: String, messagesJson: String) {
             Log.i(TAG, "CHECKOUT anim='$animId' status=$status msgs=${messagesJson.take(200)}")
             mainHandler.post { checkoutCallback?.invoke(animId, status, messagesJson) }
+        }
+
+        @JavascriptInterface
+        fun onScanDone() {
+            mainHandler.post {
+                val cb = scanRecentDone
+                scanRecentDone = null
+                cb?.invoke()
+            }
         }
 
         @JavascriptInterface
