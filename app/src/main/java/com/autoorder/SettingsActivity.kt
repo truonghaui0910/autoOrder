@@ -50,7 +50,12 @@ class SettingsActivity : AppCompatActivity() {
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
             finish()
         }
-        findViewById<View>(R.id.btnReload).setOnClickListener { /* no-op */ }
+        findViewById<View>(R.id.btnCheckout).setOnClickListener {
+            startActivity(Intent(this, ChatWebActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra("open_checkout", true))
+            finish()
+        }
         findViewById<View>(R.id.btnDump).setOnClickListener {
             Toast.makeText(this, "Quét DOM phải làm ở màn Chat", Toast.LENGTH_SHORT).show()
         }

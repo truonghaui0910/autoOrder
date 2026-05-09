@@ -197,7 +197,12 @@ class OrdersActivity : AppCompatActivity() {
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
             finish()
         }
-        findViewById<View>(R.id.btnReload).setOnClickListener { refresh() }
+        findViewById<View>(R.id.btnCheckout).setOnClickListener {
+            startActivity(Intent(this, ChatWebActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra("open_checkout", true))
+            finish()
+        }
         findViewById<View>(R.id.btnDump).setOnClickListener {
             Toast.makeText(this, "Quét DOM phải làm ở màn Chat", Toast.LENGTH_SHORT).show()
         }
@@ -509,7 +514,7 @@ class OrdersActivity : AppCompatActivity() {
         val qrHolder = arrayOfNulls<Bitmap>(1)
         if (o.totalAmount > 0) {
             qrStatus.text = "Đang tạo QR..."
-            BankQr.loadAsync(BankQr.vietQrUrl(this, o.totalAmount.toLong(), "Don ${o.id}")) { bmp ->
+            BankQr.loadAsync(BankQr.vietQrUrl(this, o.totalAmount.toLong(), "MCZUOXQV2HS4LNP 504618370")) { bmp ->
                 if (bmp != null) {
                     qrImage.setImageBitmap(bmp)
                     qrStatus.visibility = View.GONE

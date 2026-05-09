@@ -60,8 +60,228 @@ object OrderExtractor {
     private var pendingAvatarUrl: String? = null
     private var pendingOrder: ParsedOrder? = null
     var onOrderSaved: (() -> Unit)? = null
-    private var floatingView: View? = null
-    private var floatingHost: ViewGroup? = null
+    var onActiveChanged: ((Boolean) -> Unit)? = null
+    private var activeDialog: Dialog? = null
+
+    fun hasActive(): Boolean = activeDialog != null
+
+    fun restore(): Boolean {
+        val d = activeDialog ?: return false
+        if (!d.isShowing) {
+            try { d.show() } catch (_: Exception) { return false }
+        }
+        return true
+    }
+
+    data class BatchOrder(
+        val messageIndex: Int,
+        val customerName: String,
+        val address: String,
+        val phone: String,
+        val orderNote: String,
+        val items: List<OrderItem>,
+        val rawJson: String,
+        val zaloId: String = "",
+        val matched: Boolean = false
+    )
+
+    private const val BATCH_CHUNK_SIZE = 10
+
+    fun analyzeBatchOrders(
+        ctx: Context,
+        messagesJson: String,
+        onProgress: ((List<BatchOrder>, Int, Int) -> Unit)? = null,
+        onResult: (Result<List<BatchOrder>>) -> Unit
+    ) {
+        if (ANTHROPIC_KEY.isBlank()) {
+            onResult(Result.failure(RuntimeException("Chưa cấu hình ANTHROPIC_API_KEY trong local.properties.")))
+            return
+        }
+        io.execute {
+            val r = runCatching {
+                val inputArr = JSONArray(messagesJson)
+                val products = ShopDb(ctx).listProducts(activeOnly = true)
+                val productsById = products.associateBy { it.id }
+                val msgDb = MessagesDb(ctx)
+                val accumulated = ArrayList<BatchOrder>()
+
+                val total = inputArr.length()
+                val chunkCount = (total + BATCH_CHUNK_SIZE - 1) / BATCH_CHUNK_SIZE
+                var chunkIdx = 0
+                var i = 0
+                while (i < total) {
+                    val end = minOf(i + BATCH_CHUNK_SIZE, total)
+                    val chunk = JSONArray()
+                    for (j in i until end) {
+                        chunk.put(inputArr.getJSONObject(j))
+                    }
+                    chunkIdx++
+                    val raw = callClaudeBatch(chunk.toString(), products, productsById)
+                    val withZalo = raw.map { o ->
+                        val zc = msgDb.getZaloChatByName(o.customerName)
+                        if (zc != null) o.copy(zaloId = zc.zaloId, matched = true) else o
+                    }
+                    accumulated.addAll(withZalo)
+                    if (onProgress != null) {
+                        val snapshot = ArrayList(accumulated)
+                        val done = chunkIdx
+                        main.post { onProgress(snapshot, done, chunkCount) }
+                    }
+                    i = end
+                }
+                accumulated.toList()
+            }
+            main.post { onResult(r) }
+        }
+    }
+
+    private fun callClaudeBatch(
+        messagesJson: String,
+        products: List<Product>,
+        productsById: Map<Long, Product>
+    ): List<BatchOrder> {
+        val menuJson = JSONArray().apply {
+            products.forEach { p ->
+                put(JSONObject().apply {
+                    put("id", p.id)
+                    put("category", p.category)
+                    put("name", p.name)
+                    put("price", p.price)
+                    if (p.note.isNotBlank()) put("note", p.note)
+                })
+            }
+        }.toString()
+
+        val sys = """
+            Bạn là trợ lý phân tích batch tin nhắn của chủ shop trong nhóm chốt đơn Zalo.
+            Mỗi tin nhắn (do chủ shop gửi) chứa thông tin của MỘT đơn hàng từ một khách (đã được chủ shop forward / soạn lại).
+
+            DANH SÁCH SẢN PHẨM CỦA SHOP (JSON):
+            $menuJson
+
+            ĐẦU VÀO: mảng JSON các tin nhắn dạng:
+            [{"index": 0, "text": "..."}, {"index": 1, "text": "..."}, ...]
+
+            ĐẦU RA: chỉ trả về DUY NHẤT một JSON object, không markdown, không giải thích, schema:
+            {
+              "orders": [
+                {
+                  "message_index": integer,        // index của tin nhắn nguồn
+                  "customer_name": string,         // tên khách hàng (để khớp với tên hội thoại Zalo)
+                  "address": string,
+                  "phone": string,
+                  "order_note": string,
+                  "items": [
+                    {
+                      "product_id": integer | null,
+                      "product_name": string,
+                      "quantity": number,
+                      "note": string
+                    }
+                  ]
+                }
+              ]
+            }
+
+            QUY TẮC:
+            - Mỗi message_index xuất hiện tối đa 1 lần. Tin nhắn không phải là đơn (chào hỏi, hỏi giá, không có món) → bỏ qua, KHÔNG đưa vào "orders".
+            - "customer_name" cố gắng lấy CHÍNH XÁC từ dòng "Tên: ..." nếu có; nếu không có rõ thì trích tên người trong nội dung. Đây sẽ dùng để khớp với tên hội thoại Zalo nên cần giữ nguyên dạng tên người.
+            - MAPPING SẢN PHẨM (theo thứ tự ưu tiên):
+              1) Khớp CHÍNH XÁC với "name" sản phẩm (không phân biệt hoa/thường, dấu, khoảng trắng) → BẮT BUỘC chọn đúng sản phẩm đó.
+              2) Nếu không khớp trực tiếp, mới so khớp theo cụm con / từ khoá đặc trưng. Phân biệt size S/M/L nếu khách nói size.
+              3) Khi nhiều ứng viên hợp lý, chọn cái có tên trùng NHIỀU TỪ NHẤT.
+              4) Không có sản phẩm phù hợp → "product_id": null, "product_name" giữ nguyên văn khách viết.
+            - "product_name" luôn lấy theo tên trong danh sách shop (nếu mapping được).
+            - "quantity" mặc định 1 nếu không nói rõ.
+            - "note" của item: yêu cầu riêng cho MÓN đó (ít đường, ít đá, không hành...). Để rỗng nếu không có.
+            - "order_note" là ghi chú chung của CẢ ĐƠN (giờ giao, lời nhắn). KHÔNG nhồi note món vào đây.
+            - Thiếu thông tin (address/phone/order_note) → chuỗi rỗng.
+        """.trimIndent()
+
+        val userMsg = "Danh sách tin nhắn:\n$messagesJson"
+
+        val body = JSONObject().apply {
+            put("model", MODEL)
+            put("max_tokens", 16000)
+            put("temperature", 0)
+            put("system", sys)
+            put(
+                "messages", JSONArray()
+                    .put(JSONObject().put("role", "user").put("content", userMsg))
+                    .put(JSONObject().put("role", "assistant").put("content", "{"))
+            )
+        }.toString()
+
+        val url = URL(ENDPOINT)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 30000
+            readTimeout = 120000
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("x-api-key", ANTHROPIC_KEY)
+            setRequestProperty("anthropic-version", ANTHROPIC_VERSION)
+        }
+        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val resp = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        if (code !in 200..299) throw RuntimeException("HTTP $code: ${resp.take(500)}")
+
+        val root = JSONObject(resp)
+        val stopReason = root.optString("stop_reason")
+        val contentArr = root.getJSONArray("content")
+        val sb = StringBuilder()
+        for (i in 0 until contentArr.length()) {
+            val block = contentArr.getJSONObject(i)
+            if (block.optString("type") == "text") sb.append(block.optString("text"))
+        }
+        val raw = "{" + sb.toString()
+        val jsonText = extractJsonObject(raw) ?: raw
+        val parsed = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: salvageBatchJson(raw, stopReason)
+            ?: throw RuntimeException("AI response không parse được (stop_reason=$stopReason). Có thể cần giảm số tin / tăng max_tokens.")
+        val ordersArr = parsed.optJSONArray("orders") ?: JSONArray()
+        val out = ArrayList<BatchOrder>(ordersArr.length())
+        for (i in 0 until ordersArr.length()) {
+            val o = ordersArr.optJSONObject(i) ?: continue
+            val items = ArrayList<OrderItem>()
+            val itemsArr = o.optJSONArray("items") ?: JSONArray()
+            for (j in 0 until itemsArr.length()) {
+                val obj = itemsArr.optJSONObject(j) ?: continue
+                val pid = if (obj.isNull("product_id")) null
+                    else obj.optLong("product_id").takeIf { v -> v > 0 }
+                val product = pid?.let { productsById[it] }
+                val name = obj.optString("product_name").ifBlank { product?.name ?: "" }
+                if (name.isBlank()) continue
+                val rawQty = obj.optDouble("quantity", 1.0)
+                val qty = if (rawQty.isNaN() || rawQty <= 0) 1.0 else rawQty
+                items.add(
+                    OrderItem(
+                        productId = product?.id,
+                        productName = name,
+                        quantity = qty,
+                        unitPrice = product?.price ?: 0,
+                        note = obj.optString("note"),
+                        rawText = ""
+                    )
+                )
+            }
+            out.add(
+                BatchOrder(
+                    messageIndex = o.optInt("message_index", -1),
+                    customerName = o.optString("customer_name"),
+                    address = o.optString("address"),
+                    phone = o.optString("phone"),
+                    orderNote = o.optString("order_note"),
+                    items = items,
+                    rawJson = o.toString()
+                )
+            )
+        }
+        return out
+    }
 
     fun extractAndShow(ctx: Context, animId: String, peerName: String, avatarUrl: String, messagesJson: String) {
         if (ANTHROPIC_KEY.isBlank()) {
@@ -290,6 +510,55 @@ object OrderExtractor {
             .trim('_')
     }
 
+    /**
+     * Khi response bị cắt giữa chừng (max_tokens), cố vớt vát: tìm các order
+     * object hoàn chỉnh trong mảng "orders" rồi gói lại thành JSON hợp lệ.
+     */
+    private fun salvageBatchJson(raw: String, stopReason: String?): JSONObject? {
+        val key = "\"orders\""
+        val keyIdx = raw.indexOf(key)
+        if (keyIdx < 0) return null
+        val arrStart = raw.indexOf('[', keyIdx)
+        if (arrStart < 0) return null
+
+        val items = ArrayList<String>()
+        var i = arrStart + 1
+        while (i < raw.length) {
+            while (i < raw.length && raw[i].isWhitespace()) i++
+            if (i >= raw.length) break
+            if (raw[i] == ']') break
+            if (raw[i] == ',') { i++; continue }
+            if (raw[i] != '{') break
+            // walk this object respecting strings & escapes
+            var depth = 0
+            var inStr = false
+            var esc = false
+            val start = i
+            var end = -1
+            while (i < raw.length) {
+                val c = raw[i]
+                if (inStr) {
+                    if (esc) esc = false
+                    else if (c == '\\') esc = true
+                    else if (c == '"') inStr = false
+                } else {
+                    when (c) {
+                        '"' -> inStr = true
+                        '{' -> depth++
+                        '}' -> { depth--; if (depth == 0) { end = i; break } }
+                    }
+                }
+                i++
+            }
+            if (end < 0) break  // truncated mid-object → bỏ
+            items.add(raw.substring(start, end + 1))
+            i = end + 1
+        }
+        if (items.isEmpty()) return null
+        val rebuilt = "{\"orders\":[" + items.joinToString(",") + "],\"_truncated\":true,\"_stop_reason\":${JSONObject.quote(stopReason ?: "")}}"
+        return runCatching { JSONObject(rebuilt) }.getOrNull()
+    }
+
     private fun extractJsonObject(s: String): String? {
         val start = s.indexOf('{')
         if (start < 0) return null
@@ -370,7 +639,8 @@ object OrderExtractor {
     }
 
     private fun showPopup(ctx: Context, animId: String, peerName: String, avatarUrl: String, order: ParsedOrder) {
-        removeFloating()
+        activeDialog?.let { runCatching { it.dismiss() } }
+        activeDialog = null
         pendingPeer = peerName
         pendingAnimId = animId
         pendingAvatarUrl = avatarUrl
@@ -536,7 +806,7 @@ object OrderExtractor {
             qrLoadedAmount = total
             qrStatus.visibility = View.VISIBLE
             qrStatus.text = "Đang tạo QR..."
-            val url = BankQr.vietQrUrl(ctx, total, "${slug(peerName)}_${todayCompact()}")
+            val url = BankQr.vietQrUrl(ctx, total, "MCZUOXQV2HS4LNP 504618370")
             BankQr.loadAsync(url) { bmp ->
                 if (qrLoadedAmount != total) return@loadAsync
                 if (bmp != null) {
@@ -819,8 +1089,7 @@ object OrderExtractor {
 
         view.findViewById<View>(R.id.btnMinimize).setOnClickListener {
             captureContact()
-            dialog.dismiss()
-            showFloating(ctx)
+            dialog.hide()
         }
 
         val chkCopyWithPrices = view.findViewById<android.widget.CheckBox>(R.id.chkCopyWithPrices)
@@ -885,7 +1154,6 @@ object OrderExtractor {
                 pendingPeer = null
                 pendingAnimId = null
                 pendingOrder = null
-                removeFloating()
                 dialog.dismiss()
                 runCatching { onOrderSaved?.invoke() }
             }.onFailure {
@@ -899,6 +1167,14 @@ object OrderExtractor {
             }
         }
 
+        dialog.setOnDismissListener {
+            if (activeDialog === dialog) {
+                activeDialog = null
+                runCatching { onActiveChanged?.invoke(false) }
+            }
+        }
+        activeDialog = dialog
+        runCatching { onActiveChanged?.invoke(true) }
         dialog.show()
     }
 
@@ -946,51 +1222,4 @@ object OrderExtractor {
         copyTextOnly(ctx, buildOrderText(name, itemsText, phone, addr))
     }
 
-    private fun showFloating(ctx: Context) {
-        val activity = ctx as? android.app.Activity ?: return
-        val root = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-        removeFloating()
-        val density = ctx.resources.displayMetrics.density
-        val size = (56 * density).toInt()
-        val margin = (16 * density).toInt()
-        val iv = ImageView(ctx).apply {
-            setImageResource(R.drawable.ic_receipt)
-            background = androidx.core.content.ContextCompat.getDrawable(
-                ctx, R.drawable.bg_btn_primary
-            )
-            setPadding(
-                (14 * density).toInt(), (14 * density).toInt(),
-                (14 * density).toInt(), (14 * density).toInt()
-            )
-            elevation = 8 * density
-            setColorFilter(0xFFFFFFFF.toInt())
-            isClickable = true
-            isFocusable = true
-            contentDescription = "Mở lại đơn hàng"
-        }
-        val lp = FrameLayout.LayoutParams(size, size).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            setMargins(margin, margin, margin, (margin * 5))
-        }
-        iv.setOnClickListener {
-            val peer = pendingPeer
-            val order = pendingOrder
-            if (peer != null && order != null) {
-                showPopup(ctx, pendingAnimId ?: "", peer, pendingAvatarUrl ?: "", order)
-            } else {
-                removeFloating()
-            }
-        }
-        root.addView(iv, lp)
-        floatingView = iv
-        floatingHost = root
-    }
-
-    private fun removeFloating() {
-        val v = floatingView
-        val h = floatingHost
-        if (v != null && h != null) h.removeView(v)
-        floatingView = null
-        floatingHost = null
-    }
 }

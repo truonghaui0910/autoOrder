@@ -38,7 +38,7 @@
     </LinearLayout>
 
     <LinearLayout
-        android:id="@+id/btnReload"
+        android:id="@+id/btnCheckout"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
@@ -52,15 +52,15 @@
         <ImageView
             android:layout_width="18dp"
             android:layout_height="18dp"
-            android:src="@drawable/ic_refresh"
+            android:src="@drawable/ic_check_circle"
             android:tint="#1976D2"
-            android:contentDescription="Tải lại" />
+            android:contentDescription="Chốt đơn" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="1dp"
-            android:text="Tải lại"
+            android:text="Chốt đơn"
             android:textColor="#37474F"
             android:textSize="10sp" />
     </LinearLayout>
