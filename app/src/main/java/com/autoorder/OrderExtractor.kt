@@ -17,6 +17,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import coil.load
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -48,18 +49,20 @@ object OrderExtractor {
         var senderName: String = "",
         var address: String = "",
         var phone: String = "",
+        var orderNote: String = "",
         var items: MutableList<OrderItem> = mutableListOf(),
         var rawJson: String = "",
         var editedItemsText: String? = null
     )
 
     private var pendingPeer: String? = null
+    private var pendingAnimId: String? = null
     private var pendingOrder: ParsedOrder? = null
     var onOrderSaved: (() -> Unit)? = null
     private var floatingView: View? = null
     private var floatingHost: ViewGroup? = null
 
-    fun extractAndShow(ctx: Context, peerName: String, messagesJson: String) {
+    fun extractAndShow(ctx: Context, animId: String, peerName: String, messagesJson: String) {
         if (ANTHROPIC_KEY.isBlank()) {
             main.post {
                 AlertDialog.Builder(ctx)
@@ -113,7 +116,7 @@ object OrderExtractor {
             val result = runCatching { callClaude(transcript, peerName, products, productsById) }
             main.post {
                 runCatching { loading.dismiss() }
-                result.onSuccess { showPopup(ctx, peerName, it) }
+                result.onSuccess { showPopup(ctx, animId, peerName, it) }
                     .onFailure {
                         Log.e(TAG, "Claude fail", it)
                         AlertDialog.Builder(ctx)
@@ -171,6 +174,7 @@ object OrderExtractor {
                 "sender_name": string,
                 "address": string,
                 "phone": string,
+                "order_note": string,
                 "items": [
                   {
                     "product_id": integer | null,
@@ -180,16 +184,20 @@ object OrderExtractor {
                   }
                 ]
               }
-            - Với mỗi món khách order, BẮT BUỘC mapping với một sản phẩm trong DANH SÁCH ở trên qua "id" → đặt vào "product_id".
-              Ví dụ: "1 ly trà mãng cầu" → tìm sản phẩm "Mãng cầu" trong category TRÀ, dùng id của nó.
-              "chân gà M" → mapping với "Chân gà sốt thái M".
-              Phân biệt size S/M/L cho chân gà nếu khách nói size.
-            - Nếu món khách order KHÔNG có trong danh sách (off-menu) → "product_id": null, vẫn ghi tên ở "product_name".
+            - MAPPING SẢN PHẨM (rất quan trọng, làm THEO THỨ TỰ):
+              1) ƯU TIÊN TUYỆT ĐỐI: nếu chuỗi khách viết KHỚP CHÍNH XÁC (không phân biệt hoa/thường, dấu, khoảng trắng thừa) với "name" của một sản phẩm trong danh sách → BẮT BUỘC chọn sản phẩm đó. Không được suy luận sang sản phẩm khác.
+                 Ví dụ: khách viết "1 cóc thơm" và danh sách có sản phẩm "Cóc thơm" → PHẢI chọn "Cóc thơm". KHÔNG được chọn "Thơm chanh dây" hay bất kỳ sản phẩm nào khác chỉ vì có chứa từ "thơm".
+              2) Nếu không có khớp trực tiếp, mới so khớp theo cụm con / từ khoá đặc trưng:
+                 "1 ly trà mãng cầu" → "Mãng cầu" (TRÀ).
+                 "chân gà M" → "Chân gà sốt thái M". Phân biệt size S/M/L nếu khách nói size.
+              3) Khi có nhiều ứng viên hợp lý, chọn cái có tên trùng NHIỀU TỪ NHẤT với chuỗi khách viết, ưu tiên trùng đầy đủ trước khi đoán nghĩa.
+              4) Nếu thật sự không có sản phẩm phù hợp → "product_id": null, "product_name" giữ nguyên văn khách.
             - "product_name" luôn lấy theo tên trong danh sách shop (nếu mapping được), không lấy nguyên văn của khách.
             - "quantity" là số lượng (số nguyên hoặc thập phân nếu nửa con). Nếu khách không nói rõ → 1.
-            - "note" chứa yêu cầu đặc biệt: ít đường, ít đá, không hành, ghi chú riêng. Để rỗng nếu không có.
+            - "note" của từng item: yêu cầu riêng cho MÓN đó (ít đường, ít đá, không hành...). Để rỗng nếu không có.
+            - "order_note" là ghi chú chung cho CẢ ĐƠN, KHÔNG phải cho 1 món riêng lẻ. Ví dụ: giờ giao ("giao trước 5h"), cách giao ("để cổng"), lời nhắn, yêu cầu chung ("gói riêng từng món", "gọi trước khi đến"). Nếu không có thì để chuỗi rỗng. KHÔNG nhồi note của từng món vào đây — note món để ở "items[].note".
             - Nếu khách hỏi giá / chưa chốt món / chỉ chào hỏi → "items": [].
-            - Thiếu thông tin nào (sender_name/address/phone) thì để chuỗi rỗng.
+            - Thiếu thông tin nào (sender_name/address/phone/order_note) thì để chuỗi rỗng.
             - Nếu trong chat không có tên khách rõ ràng, dùng tên peer "$peerName" cho sender_name.
         """.trimIndent()
 
@@ -239,6 +247,7 @@ object OrderExtractor {
             senderName = parsed.optString("sender_name").ifBlank { peerName },
             address = parsed.optString("address"),
             phone = parsed.optString("phone"),
+            orderNote = parsed.optString("order_note"),
             rawJson = jsonText
         )
         val arr = parsed.optJSONArray("items") ?: JSONArray()
@@ -359,10 +368,16 @@ object OrderExtractor {
         }
     }
 
-    private fun showPopup(ctx: Context, peerName: String, order: ParsedOrder) {
+    private fun showPopup(ctx: Context, animId: String, peerName: String, order: ParsedOrder) {
         removeFloating()
         pendingPeer = peerName
+        pendingAnimId = animId
         pendingOrder = order
+
+        val zaloChat = if (animId.isNotBlank())
+            runCatching { MessagesDb(ctx).getZaloChatByZaloId(animId) }.getOrNull() else null
+        if (order.address.isBlank()) zaloChat?.addressList()?.firstOrNull()?.let { order.address = it }
+        if (order.phone.isBlank()) zaloChat?.phoneList()?.firstOrNull()?.let { order.phone = it }
 
         val products = ShopDb(ctx).listProducts(activeOnly = true)
         val productsById = products.associateBy { it.id }
@@ -371,6 +386,7 @@ object OrderExtractor {
         val etName = view.findViewById<EditText>(R.id.etName)
         val etAddr = view.findViewById<EditText>(R.id.etAddr)
         val etPhone = view.findViewById<EditText>(R.id.etPhone)
+        val etOrderNote = view.findViewById<EditText>(R.id.etOrderNote)
         val itemsContainer = view.findViewById<LinearLayout>(R.id.itemsContainer)
         val itemsEmpty = view.findViewById<View>(R.id.itemsEmpty)
         val txtGrandTotal = view.findViewById<android.widget.TextView>(R.id.txtGrandTotal)
@@ -379,12 +395,112 @@ object OrderExtractor {
         val qrImage = view.findViewById<ImageView>(R.id.qrImage)
         val qrStatus = view.findViewById<android.widget.TextView>(R.id.qrStatus)
         view.findViewById<android.widget.TextView>(R.id.bankInfo).text = BankQr.infoText(ctx)
+        val imgAvatar = view.findViewById<ImageView>(R.id.imgAvatar)
+        if (zaloChat != null && zaloChat.avatarUrl.isNotBlank()) {
+            imgAvatar.load(zaloChat.avatarUrl) {
+                crossfade(true)
+                placeholder(R.drawable.bg_avatar_placeholder)
+                error(R.drawable.bg_avatar_placeholder)
+                transformations(coil.transform.CircleCropTransformation())
+            }
+        }
+        val chkCustomer = view.findViewById<android.widget.CheckBox>(R.id.chkCustomer)
+        chkCustomer.isEnabled = animId.isNotBlank()
+        chkCustomer.isChecked = zaloChat?.chatType == "customer"
+        chkCustomer.setOnCheckedChangeListener { _, isChecked ->
+            if (animId.isBlank()) return@setOnCheckedChangeListener
+            val newType = if (isChecked) "customer" else "normal"
+            io.execute {
+                runCatching { MessagesDb(ctx).setChatTypeByZaloId(animId, newType) }
+            }
+        }
+        val phoneSavedScroll = view.findViewById<View>(R.id.phoneSavedScroll)
+        val phoneSavedRow = view.findViewById<LinearLayout>(R.id.phoneSavedRow)
+        val addrSavedScroll = view.findViewById<View>(R.id.addrSavedScroll)
+        val addrSavedRow = view.findViewById<LinearLayout>(R.id.addrSavedRow)
         val qrHolder = arrayOfNulls<android.graphics.Bitmap>(1)
         var qrLoadedAmount = -1L
 
         etName.setText(order.senderName)
         etAddr.setText(order.address)
         etPhone.setText(order.phone)
+        etOrderNote.setText(order.orderNote)
+
+        val savedPhones = mutableListOf<String>().apply {
+            zaloChat?.phoneList()?.let { addAll(it) }
+        }
+        val savedAddrs = mutableListOf<String>().apply {
+            zaloChat?.addressList()?.let { addAll(it) }
+        }
+        val density = ctx.resources.displayMetrics.density
+
+        fun makeChip(text: String, onClick: () -> Unit, isSave: Boolean = false): android.widget.TextView {
+            val tv = android.widget.TextView(ctx)
+            tv.text = text
+            tv.textSize = 12f
+            tv.setTextColor(if (isSave) 0xFF1E88E5.toInt() else 0xFF37474F.toInt())
+            val padH = (10 * density).toInt()
+            val padV = (5 * density).toInt()
+            tv.setPadding(padH, padV, padH, padV)
+            tv.setBackgroundResource(
+                if (isSave) R.drawable.bg_chip_customer else R.drawable.bg_chip_normal
+            )
+            tv.isClickable = true
+            tv.isFocusable = true
+            tv.setOnClickListener { onClick() }
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.marginEnd = (6 * density).toInt()
+            tv.layoutParams = lp
+            return tv
+        }
+
+        fun renderSavedRow(
+            row: LinearLayout, scroll: View,
+            saved: List<String>, current: String,
+            target: EditText, onSaveNew: (String) -> Unit
+        ) {
+            row.removeAllViews()
+            val cur = current.trim()
+            saved.forEach { v ->
+                row.addView(makeChip(v, { target.setText(v) }))
+            }
+            val isNew = cur.isNotEmpty() && saved.none { it.equals(cur, ignoreCase = true) }
+            if (isNew) {
+                row.addView(makeChip("+ Lưu \"${cur.take(24)}${if (cur.length > 24) "…" else ""}\"",
+                    { onSaveNew(cur) }, isSave = true))
+            }
+            scroll.visibility = if (row.childCount > 0) View.VISIBLE else View.GONE
+        }
+
+        lateinit var refreshPhone: () -> Unit
+        lateinit var refreshAddr: () -> Unit
+        refreshPhone = {
+            renderSavedRow(phoneSavedRow, phoneSavedScroll, savedPhones,
+                etPhone.text.toString(), etPhone) { v ->
+                if (animId.isNotBlank() && MessagesDb(ctx).appendPhoneToZaloChat(animId, v)) {
+                    savedPhones.add(v)
+                    android.widget.Toast.makeText(ctx, "Đã lưu SĐT", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                refreshPhone()
+            }
+        }
+        refreshAddr = {
+            renderSavedRow(addrSavedRow, addrSavedScroll, savedAddrs,
+                etAddr.text.toString(), etAddr) { v ->
+                if (animId.isNotBlank() && MessagesDb(ctx).appendAddressToZaloChat(animId, v)) {
+                    savedAddrs.add(v)
+                    android.widget.Toast.makeText(ctx, "Đã lưu địa chỉ", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                refreshAddr()
+            }
+        }
+        etPhone.addTextChangedListener(simpleWatch { refreshPhone() })
+        etAddr.addTextChangedListener(simpleWatch { refreshAddr() })
+        refreshPhone()
+        refreshAddr()
 
         val dialog = Dialog(ctx, R.style.TransparentDialog)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -555,10 +671,12 @@ object OrderExtractor {
             order.senderName = etName.text.toString()
             order.address = etAddr.text.toString()
             order.phone = etPhone.text.toString()
+            order.orderNote = etOrderNote.text.toString()
         }
 
         view.findViewById<View>(R.id.btnDismiss).setOnClickListener {
             pendingPeer = null
+            pendingAnimId = null
             pendingOrder = null
             dialog.dismiss()
         }
@@ -568,7 +686,7 @@ object OrderExtractor {
         val rootView = view as android.view.ViewGroup
         val originalRootBg = rootView.background
         val originalHeaderBg = rootView.getChildAt(0).background
-        val keepVisibleIds = setOf(R.id.etName, R.id.etAddr, R.id.etPhone, R.id.totalRow, R.id.itemsContainer)
+        val keepVisibleIds = setOf(R.id.etName, R.id.etAddr, R.id.etPhone, R.id.etOrderNote, R.id.totalRow, R.id.itemsContainer)
         val textBgColor = 0xE6FFFFFF.toInt()
         fun bg(resId: Int) = androidx.core.content.ContextCompat.getDrawable(ctx, resId)
         fun applyTextBgSpan(tv: android.widget.TextView, on: Boolean) {
@@ -706,7 +824,7 @@ object OrderExtractor {
             val withPrices = chkCopyWithPrices.isChecked
             val orderText = buildOrderText(order.senderName,
                 buildItemsText(order.items, withPrices, productsById),
-                order.phone, order.address)
+                order.phone, order.address, order.orderNote)
             copyTextOnly(ctx, orderText)
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
             android.widget.Toast.makeText(
@@ -729,7 +847,7 @@ object OrderExtractor {
             val withPrices = chkCopyWithPrices.isChecked
             val copyItemsText = buildItemsText(validItems, withPrices, productsById)
             val orderText = buildOrderText(
-                order.senderName, copyItemsText, order.phone, order.address
+                order.senderName, copyItemsText, order.phone, order.address, order.orderNote
             )
             copyTextOnly(ctx, orderText)
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
@@ -744,7 +862,9 @@ object OrderExtractor {
                 address = order.address.trim(),
                 itemsText = itemsText,
                 rawJson = order.rawJson,
-                totalAmount = validItems.sumOf { it.lineTotal }
+                totalAmount = validItems.sumOf { it.lineTotal },
+                note = order.orderNote.trim(),
+                zaloId = animId
             )
             val newId = runCatching { ShopDb(ctx).insertOrder(record, validItems) }
             newId.onSuccess { id ->
@@ -753,6 +873,7 @@ object OrderExtractor {
                     ctx, "Đã lưu đơn #$id & copy vào clipboard", android.widget.Toast.LENGTH_SHORT
                 ).show()
                 pendingPeer = null
+                pendingAnimId = null
                 pendingOrder = null
                 removeFloating()
                 dialog.dismiss()
@@ -792,10 +913,13 @@ object OrderExtractor {
     }
 
     private fun buildOrderText(
-        name: String, itemsText: String, phone: String, addr: String
+        name: String, itemsText: String, phone: String, addr: String, note: String = ""
     ): String = buildString {
         append("Tên: ").append(name).append("\n\n")
         append(itemsText).append("\n\n")
+        if (note.isNotBlank()) {
+            append("Ghi chú: ").append(note.trim()).append("\n")
+        }
         append("SĐT: ").append(phone).append('\n')
         append("Địa chỉ: ").append(addr)
     }
@@ -842,7 +966,7 @@ object OrderExtractor {
             val peer = pendingPeer
             val order = pendingOrder
             if (peer != null && order != null) {
-                showPopup(ctx, peer, order)
+                showPopup(ctx, pendingAnimId ?: "", peer, order)
             } else {
                 removeFloating()
             }

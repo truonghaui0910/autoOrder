@@ -107,8 +107,10 @@ internal const val ZALO_OBSERVER_JS = """
   window.__autoOrderExtractSelected = function() {
     var selRel = document.querySelector('.conv-rel.selected');
     var peerName = '';
+    var animId = '';
     if (selRel) {
       var item = (selRel.closest && selRel.closest('.msg-item')) || selRel;
+      animId = item.getAttribute && (item.getAttribute('anim-data-id') || '') || '';
       var nameInner = item.querySelector('.conv-item-title__name .truncate');
       var nameEl = nameInner || item.querySelector('.conv-item-title__name');
       peerName = nameEl ? snippet((nameEl.innerText || '').trim(), 100) : '';
@@ -116,7 +118,7 @@ internal const val ZALO_OBSERVER_JS = """
     var container = document.getElementById('messageViewScroll') ||
                     document.getElementById('messageViewContainer');
     if (!container) {
-      AutoOrderBridge.onConversation(peerName, '[]');
+      AutoOrderBridge.onConversation(animId, peerName, '[]');
       return;
     }
     var nodes = container.querySelectorAll('.chat-item');
@@ -136,7 +138,30 @@ internal const val ZALO_OBSERVER_JS = """
       if (!text) continue;
       arr.push({ from: isMe ? 'me' : 'them', text: snippet(text, 2000) });
     }
-    AutoOrderBridge.onConversation(peerName, JSON.stringify(arr));
+    AutoOrderBridge.onConversation(animId, peerName, JSON.stringify(arr));
+  };
+
+  function reportConvItem(item) {
+    var animId = item.getAttribute('anim-data-id') || '';
+    if (!animId) return;
+    var dataId = item.getAttribute('data-id') || '';
+    if (dataId === 'div_TabMsg_ThrdChFileXFER') return;
+    var isGroup = animId.charAt(0) === 'g';
+    var nameInner = item.querySelector('.conv-item-title__name .truncate');
+    var nameEl = nameInner || item.querySelector('.conv-item-title__name');
+    var name = nameEl ? snippet((nameEl.innerText || '').trim(), 200) : '';
+    if (!name) return;
+    var avatarUrl = '';
+    var imgEl = item.querySelector('.zavatar img');
+    if (imgEl && imgEl.src) avatarUrl = imgEl.src;
+    var timeEl = item.querySelector('.preview-time');
+    var timeText = timeEl ? snippet((timeEl.innerText || '').trim(), 30) : '';
+    AutoOrderBridge.onConvItem(animId, name, avatarUrl, isGroup, timeText);
+  }
+
+  window.__autoOrderScanConvs = function() {
+    var items = document.querySelectorAll('.msg-item');
+    for (var i = 0; i < items.length; i++) reportConvItem(items[i]);
   };
 
   window.__autoOrderDump = function() {

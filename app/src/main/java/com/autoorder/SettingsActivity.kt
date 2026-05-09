@@ -18,6 +18,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var txtViewMode: TextView
     private lateinit var txtProductsCount: TextView
     private lateinit var txtBankSummary: TextView
+    private lateinit var txtZaloChatsCount: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,6 +27,7 @@ class SettingsActivity : AppCompatActivity() {
         txtViewMode = findViewById(R.id.txtViewMode)
         txtProductsCount = findViewById(R.id.txtProductsCount)
         txtBankSummary = findViewById(R.id.txtBankSummary)
+        txtZaloChatsCount = findViewById(R.id.txtZaloChatsCount)
         refreshSummaries()
 
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
@@ -38,6 +40,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.rowOpenInbox).setOnClickListener {
             startActivity(Intent(this, OrdersActivity::class.java))
+        }
+        findViewById<View>(R.id.rowZaloChats).setOnClickListener {
+            startActivity(Intent(this, ZaloChatsActivity::class.java))
         }
 
         findViewById<View>(R.id.btnHome).setOnClickListener {
@@ -68,6 +73,9 @@ class SettingsActivity : AppCompatActivity() {
             "Web view (Desktop, 3 cột)"
         val count = ShopDb(this).listProducts(activeOnly = false).size
         txtProductsCount.text = "$count sản phẩm"
+
+        val zaloChatsCount = runCatching { MessagesDb(this).countZaloChats() }.getOrDefault(0)
+        txtZaloChatsCount.text = "$zaloChatsCount chat"
 
         val accounts = BankAccountsStore.list(this)
         val active = accounts.firstOrNull { it.active }

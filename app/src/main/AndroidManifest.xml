@@ -52,6 +52,12 @@
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
         <activity
+            android:name=".ZaloChatsActivity"
+            android:exported="false"
+            android:label="Zalo chat"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <activity
             android:name=".BankAccountsActivity"
             android:exported="false"
             android:label="Tài khoản nhận tiền"

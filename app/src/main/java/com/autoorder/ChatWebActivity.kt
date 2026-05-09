@@ -27,6 +27,15 @@ class ChatWebActivity : AppCompatActivity() {
         private const val TAG = "AutoOrder"
         private const val URL = "https://chat.zalo.me/"
 
+        @Volatile
+        private var liveInstance: java.lang.ref.WeakReference<ChatWebActivity>? = null
+
+        fun requestScanConvs(): Boolean {
+            val act = liveInstance?.get() ?: return false
+            act.runOnUiThread { act.triggerScanConvs() }
+            return true
+        }
+
         private const val PASTE_QR_JS = """
 (function(){
   try {
@@ -96,6 +105,7 @@ class ChatWebActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_chat_web)
 
+        liveInstance = java.lang.ref.WeakReference(this)
         webView = findViewById(R.id.webView)
         counter = findViewById(R.id.counter)
         qrPasteBar = findViewById(R.id.qrPasteBar)
@@ -158,7 +168,10 @@ class ChatWebActivity : AppCompatActivity() {
                 )
                 view.evaluateJavascript(ZALO_OBSERVER_JS, null)
                 refreshCounter()
-                mainHandler.postDelayed({ triggerDump() }, 4000L)
+                mainHandler.postDelayed({
+                    triggerDump()
+                    triggerScanConvs()
+                }, 4000L)
             }
         }
 
@@ -187,6 +200,12 @@ class ChatWebActivity : AppCompatActivity() {
 
     private fun triggerDump() {
         webView.evaluateJavascript("window.__autoOrderDump && window.__autoOrderDump();", null)
+    }
+
+    fun triggerScanConvs() {
+        webView.evaluateJavascript(
+            "window.__autoOrderScanConvs && window.__autoOrderScanConvs();", null
+        )
     }
 
     private fun triggerExtractSelected() {
@@ -264,6 +283,7 @@ class ChatWebActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (liveInstance?.get() === this) liveInstance = null
         ioExecutor.shutdown()
         runCatching { db.close() }
     }
@@ -298,10 +318,21 @@ class ChatWebActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
-        fun onConversation(peerName: String, messagesJson: String) {
-            Log.i(TAG, "EXTRACT peer='$peerName' msgs=${messagesJson.take(200)}")
+        fun onConversation(animId: String, peerName: String, messagesJson: String) {
+            Log.i(TAG, "EXTRACT anim='$animId' peer='$peerName' msgs=${messagesJson.take(200)}")
             mainHandler.post {
-                OrderExtractor.extractAndShow(this@ChatWebActivity, peerName, messagesJson)
+                OrderExtractor.extractAndShow(this@ChatWebActivity, animId, peerName, messagesJson)
+            }
+        }
+
+        @JavascriptInterface
+        fun onConvItem(animId: String, name: String, avatarUrl: String, isGroup: Boolean, timeText: String) {
+            if (animId.isBlank()) return
+            ioExecutor.execute {
+                runCatching {
+                    val lastMsgAt = ZaloTimeParser.parse(timeText)
+                    db.upsertZaloChat(animId, name, avatarUrl, isGroup, lastMsgAt, timeText)
+                }
             }
         }
 

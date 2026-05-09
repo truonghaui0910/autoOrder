@@ -383,7 +383,15 @@ class OrdersActivity : AppCompatActivity() {
         when (tab) {
             Tab.ORDERS -> {
                 val rows = db.queryOrders(from, to, paid, search, limit = 500)
-                ordersAdapter.submit(rows)
+                val ids = rows.map { it.zaloId }.filter { it.isNotBlank() }.toSet()
+                val avatars = if (ids.isEmpty()) emptyMap() else {
+                    val msgDb = MessagesDb(this)
+                    ids.mapNotNull { id ->
+                        msgDb.getZaloChatByZaloId(id)?.takeIf { it.avatarUrl.isNotBlank() }
+                            ?.let { id to it.avatarUrl }
+                    }.toMap()
+                }
+                ordersAdapter.submit(rows, avatars)
                 emptyView.text = "Chưa có đơn nào trong khoảng đã chọn"
                 emptyView.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
             }
@@ -554,6 +562,7 @@ class OrdersActivity : AppCompatActivity() {
                 }
                 if (o.totalAmount > 0) append("Tổng: ").append(nf.format(o.totalAmount)).append("₫\n")
                 append('\n')
+                if (o.note.isNotBlank()) append("Ghi chú: ").append(o.note.trim()).append('\n')
                 append("SĐT: ").append(o.phone).append('\n')
                 append("Địa chỉ: ").append(o.address)
             }

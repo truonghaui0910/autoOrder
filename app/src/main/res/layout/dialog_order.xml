@@ -16,10 +16,12 @@
         android:paddingBottom="16dp">
 
         <ImageView
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_receipt"
-            android:contentDescription="Order" />
+            android:id="@+id/imgAvatar"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_avatar_placeholder"
+            android:scaleType="centerCrop"
+            android:contentDescription="Avatar" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -105,11 +107,29 @@
                 style="@style/OrderFieldLabel"
                 android:text="Tên người gửi" />
 
-            <EditText
-                android:id="@+id/etName"
-                style="@style/OrderFieldInput"
-                android:inputType="textPersonName"
-                android:singleLine="true" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/etName"
+                    style="@style/OrderFieldInput"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:inputType="textPersonName"
+                    android:singleLine="true" />
+
+                <CheckBox
+                    android:id="@+id/chkCustomer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Khách hàng"
+                    android:textSize="12sp"
+                    android:textColor="#37474F" />
+            </LinearLayout>
 
             <TextView
                 style="@style/OrderFieldLabel"
@@ -182,6 +202,20 @@
                 android:minLines="2"
                 android:gravity="top|start" />
 
+            <HorizontalScrollView
+                android:id="@+id/addrSavedScroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:scrollbars="none"
+                android:visibility="gone">
+                <LinearLayout
+                    android:id="@+id/addrSavedRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
             <TextView
                 style="@style/OrderFieldLabel"
                 android:text="Số điện thoại" />
@@ -191,6 +225,32 @@
                 style="@style/OrderFieldInput"
                 android:inputType="phone"
                 android:singleLine="true" />
+
+            <HorizontalScrollView
+                android:id="@+id/phoneSavedScroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:scrollbars="none"
+                android:visibility="gone">
+                <LinearLayout
+                    android:id="@+id/phoneSavedRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <TextView
+                style="@style/OrderFieldLabel"
+                android:text="Ghi chú đơn" />
+
+            <EditText
+                android:id="@+id/etOrderNote"
+                style="@style/OrderFieldInput"
+                android:inputType="textMultiLine|textCapSentences"
+                android:minLines="2"
+                android:gravity="top|start"
+                android:hint="Ghi chú chung cho cả đơn (giờ giao, lời nhắn...)" />
 
             <LinearLayout
                 android:id="@+id/qrSection"
