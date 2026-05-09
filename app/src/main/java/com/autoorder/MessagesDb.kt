@@ -162,32 +162,35 @@ class MessagesDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAM
         writableDatabase.update(T_CHATS, cv, "id = ?", arrayOf(id.toString()))
     }
 
-    fun getZaloChatByName(name: String): ZaloChat? {
-        if (name.isBlank()) return null
+    fun getZaloChatsByName(name: String): List<ZaloChat> {
+        if (name.isBlank()) return emptyList()
+        val out = ArrayList<ZaloChat>()
         readableDatabase.rawQuery(
             "SELECT id, zalo_id, name, avatar_url, is_group, chat_type, address, phone, created_at, status, last_msg_at, last_msg_text " +
                 "FROM $T_CHATS WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND status = 'active' " +
-                "ORDER BY last_msg_at DESC, id DESC LIMIT 1",
+                "ORDER BY last_msg_at DESC, id DESC",
             arrayOf(name)
         ).use { c ->
-            if (c.moveToFirst()) {
-                return ZaloChat(
-                    id = c.getLong(0),
-                    zaloId = c.getString(1) ?: "",
-                    name = c.getString(2) ?: "",
-                    avatarUrl = c.getString(3) ?: "",
-                    isGroup = c.getInt(4) == 1,
-                    chatType = c.getString(5) ?: "normal",
-                    address = c.getString(6) ?: "",
-                    phone = c.getString(7) ?: "",
-                    createdAt = c.getLong(8),
-                    status = c.getString(9) ?: "active",
-                    lastMsgAt = c.getLong(10),
-                    lastMsgText = c.getString(11) ?: ""
+            while (c.moveToNext()) {
+                out.add(
+                    ZaloChat(
+                        id = c.getLong(0),
+                        zaloId = c.getString(1) ?: "",
+                        name = c.getString(2) ?: "",
+                        avatarUrl = c.getString(3) ?: "",
+                        isGroup = c.getInt(4) == 1,
+                        chatType = c.getString(5) ?: "normal",
+                        address = c.getString(6) ?: "",
+                        phone = c.getString(7) ?: "",
+                        createdAt = c.getLong(8),
+                        status = c.getString(9) ?: "active",
+                        lastMsgAt = c.getLong(10),
+                        lastMsgText = c.getString(11) ?: ""
+                    )
                 )
             }
         }
-        return null
+        return out
     }
 
     fun getZaloChatByZaloId(zaloId: String): ZaloChat? {

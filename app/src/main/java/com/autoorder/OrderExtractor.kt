@@ -83,10 +83,34 @@ object OrderExtractor {
         val rawJson: String,
         val zaloId: String = "",
         val matched: Boolean = false,
-        val avatarUrl: String = ""
+        val avatarUrl: String = "",
+        val ambiguous: Boolean = false,
+        val candidates: List<ZaloChat> = emptyList()
     )
 
     private const val BATCH_CHUNK_SIZE = 10
+
+    private fun normalizePhone(s: String): String = s.replace(Regex("\\D"), "")
+
+    /**
+     * Lọc lại candidates trùng tên Zalo bằng số điện thoại.
+     * - Nếu chỉ có 0/1 match thì trả về nguyên list, không lọc.
+     * - Nếu nhiều match + có phone từ AI: giữ candidate nào có ÍT NHẤT 1 phone
+     *   (sau khi normalize digits) chứa phone đơn (hoặc ngược lại — bidirectional contains).
+     * - Nếu sau lọc còn 0 → trả lại list gốc (để UI hiện tất cả cho user chọn).
+     */
+    private fun pickByPhone(matches: List<ZaloChat>, orderPhone: String): List<ZaloChat> {
+        if (matches.size <= 1) return matches
+        val pn = normalizePhone(orderPhone)
+        if (pn.isBlank()) return matches
+        val filtered = matches.filter { zc ->
+            ZaloChat.splitMulti(zc.phone)
+                .map { normalizePhone(it) }
+                .filter { it.isNotBlank() }
+                .any { p -> p.contains(pn) || pn.contains(p) }
+        }
+        return if (filtered.isEmpty()) matches else filtered
+    }
 
     fun analyzeBatchOrders(
         ctx: Context,
@@ -119,12 +143,20 @@ object OrderExtractor {
                     chunkIdx++
                     val raw = callClaudeBatch(chunk.toString(), products, productsById)
                     val withZalo = raw.map { o ->
-                        val zc = msgDb.getZaloChatByName(o.customerName)
-                        if (zc != null) o.copy(
-                            zaloId = zc.zaloId,
-                            matched = true,
-                            avatarUrl = zc.avatarUrl
-                        ) else o
+                        val matches = msgDb.getZaloChatsByName(o.customerName)
+                        val picked = pickByPhone(matches, o.phone)
+                        when {
+                            picked.size == 1 -> o.copy(
+                                zaloId = picked[0].zaloId,
+                                matched = true,
+                                avatarUrl = picked[0].avatarUrl
+                            )
+                            picked.size > 1 -> o.copy(
+                                ambiguous = true,
+                                candidates = picked
+                            )
+                            else -> o
+                        }
                     }
                     accumulated.addAll(withZalo)
                     if (onProgress != null) {
@@ -397,7 +429,6 @@ object OrderExtractor {
             - Chỉ trả về DUY NHẤT một JSON object, không markdown, không giải thích.
             - Schema:
               {
-                "sender_name": string,
                 "address": string,
                 "phone": string,
                 "order_note": string,
@@ -423,8 +454,8 @@ object OrderExtractor {
             - "note" của từng item: yêu cầu riêng cho MÓN đó (ít đường, ít đá, không hành...). Để rỗng nếu không có.
             - "order_note" là ghi chú chung cho CẢ ĐƠN, KHÔNG phải cho 1 món riêng lẻ. Ví dụ: giờ giao ("giao trước 5h"), cách giao ("để cổng"), lời nhắn, yêu cầu chung ("gói riêng từng món", "gọi trước khi đến"). Nếu không có thì để chuỗi rỗng. KHÔNG nhồi note của từng món vào đây — note món để ở "items[].note".
             - Nếu khách hỏi giá / chưa chốt món / chỉ chào hỏi → "items": [].
-            - Thiếu thông tin nào (sender_name/address/phone/order_note) thì để chuỗi rỗng.
-            - Nếu trong chat không có tên khách rõ ràng, dùng tên peer "$peerName" cho sender_name.
+            - Thiếu thông tin nào (address/phone/order_note) thì để chuỗi rỗng.
+            - KHÔNG được suy đoán hay trích xuất tên người gửi từ nội dung — tên người gửi do hệ thống tự gán từ Zalo, không phải việc của bạn.
         """.trimIndent()
 
         val userMsg = "Tên peer: $peerName\n\nHội thoại:\n$transcript"
@@ -470,7 +501,9 @@ object OrderExtractor {
         val parsed = JSONObject(jsonText)
 
         val out = ParsedOrder(
-            senderName = parsed.optString("sender_name").ifBlank { peerName },
+            // Tên Zalo BẮT BUỘC lấy từ peerName (parse từ .msg-item trong WebView),
+            // KHÔNG dùng bất cứ thứ gì AI trả về cho trường này.
+            senderName = peerName,
             address = parsed.optString("address"),
             phone = parsed.optString("phone"),
             orderNote = parsed.optString("order_note"),

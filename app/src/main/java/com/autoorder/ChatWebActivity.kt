@@ -363,12 +363,26 @@ class ChatWebActivity : AppCompatActivity() {
         lateinit var analyzeOne: (Int) -> Unit
         lateinit var analyzeMany: (List<Int>) -> Unit
         lateinit var saveOne: (Int) -> Unit
+        lateinit var pickCandidate: (Int, ZaloChat) -> Unit
+
+        pickCandidate = { idx, zc ->
+            ordersByIndex[idx]?.let { ord ->
+                ordersByIndex[idx] = ord.copy(
+                    zaloId = zc.zaloId,
+                    matched = true,
+                    avatarUrl = zc.avatarUrl,
+                    ambiguous = false,
+                    candidates = emptyList()
+                )
+                rerender()
+            }
+        }
 
         rerender = {
             renderPairedRows(
                 messagesContainer, texts, timesMs,
                 ordersByIndex, loadingIndices, analyzedIndices, savedIndices,
-                analyzeOne, saveOne
+                analyzeOne, saveOne, pickCandidate
             )
             btnAnalyze.isEnabled = texts.isNotEmpty() &&
                 (texts.indices).any { it !in analyzedIndices && it !in loadingIndices }
@@ -623,7 +637,8 @@ class ChatWebActivity : AppCompatActivity() {
         analyzedIndices: Set<Int>,
         savedIndices: Set<Int>,
         onAnalyzeOne: (Int) -> Unit,
-        onSaveOne: (Int) -> Unit
+        onSaveOne: (Int) -> Unit,
+        onPickCandidate: (Int, ZaloChat) -> Unit
     ) {
         container.removeAllViews()
         val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).apply {
@@ -700,7 +715,7 @@ class ChatWebActivity : AppCompatActivity() {
                 isAnalyzed && order != null -> {
                     rightCol.addView(buildOrderCard(
                         order, i, i in savedIndices,
-                        padH, padV, density, onAnalyzeOne, onSaveOne
+                        padH, padV, density, onAnalyzeOne, onSaveOne, onPickCandidate
                     ))
                 }
                 isAnalyzed -> {
@@ -838,7 +853,8 @@ class ChatWebActivity : AppCompatActivity() {
         isSaved: Boolean,
         padH: Int, padV: Int, density: Float,
         onAnalyzeOne: (Int) -> Unit,
-        onSaveOne: (Int) -> Unit
+        onSaveOne: (Int) -> Unit,
+        onPickCandidate: (Int, ZaloChat) -> Unit
     ): View {
         val frame = android.widget.FrameLayout(this)
         val frameLp = android.widget.LinearLayout.LayoutParams(
@@ -940,12 +956,42 @@ class ChatWebActivity : AppCompatActivity() {
             header.addView(nameCol)
             card.addView(header)
         } else {
+            val titleRow = android.widget.LinearLayout(this)
+            titleRow.orientation = android.widget.LinearLayout.HORIZONTAL
+            titleRow.gravity = android.view.Gravity.CENTER_VERTICAL
+
             val title = TextView(this)
             title.text = "⚠ $nameLabel"
             title.setTextColor(0xFFEF6C00.toInt())
             title.textSize = 12f
             title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
-            card.addView(title)
+            title.maxLines = 1
+            title.ellipsize = android.text.TextUtils.TruncateAt.END
+            val titleLp = android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            )
+            title.layoutParams = titleLp
+            titleRow.addView(title)
+
+            val copySize = (18 * density).toInt()
+            val copyPad = (2 * density).toInt()
+            val ivCopy = android.widget.ImageView(this)
+            ivCopy.setImageResource(R.drawable.ic_copy)
+            ivCopy.setColorFilter(0xFF90A4AE.toInt())
+            ivCopy.setPadding(copyPad, copyPad, copyPad, copyPad)
+            ivCopy.isClickable = true
+            ivCopy.isFocusable = true
+            ivCopy.setOnClickListener {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Tên Zalo", ord.customerName))
+                Toast.makeText(this, "Đã copy: ${ord.customerName}", Toast.LENGTH_SHORT).show()
+            }
+            val copyLp = android.widget.LinearLayout.LayoutParams(copySize, copySize)
+            copyLp.marginStart = (4 * density).toInt()
+            ivCopy.layoutParams = copyLp
+            titleRow.addView(ivCopy)
+
+            card.addView(titleRow)
         }
 
         ord.items.forEach { it ->
@@ -999,7 +1045,86 @@ class ChatWebActivity : AppCompatActivity() {
             tvNote.setTextColor(0xFF546E7A.toInt())
             card.addView(tvNote)
         }
-        if (!ord.matched && ord.customerName.isNotBlank()) {
+        if (!ord.matched && ord.ambiguous && ord.candidates.isNotEmpty()) {
+            val tvAmb = TextView(this)
+            tvAmb.text = "⚠ ${ord.candidates.size} Zalo trùng tên \"${ord.customerName}\" — chọn 1:"
+            tvAmb.textSize = 10f
+            tvAmb.setTextColor(0xFFEF6C00.toInt())
+            val ambLp = android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            ambLp.topMargin = (4 * density).toInt()
+            tvAmb.layoutParams = ambLp
+            card.addView(tvAmb)
+
+            val timeFmtCand = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+            }
+            ord.candidates.forEach { zc ->
+                val row = android.widget.LinearLayout(this)
+                row.orientation = android.widget.LinearLayout.HORIZONTAL
+                row.gravity = android.view.Gravity.CENTER_VERTICAL
+                row.isClickable = true
+                row.isFocusable = true
+                row.background = androidx.core.content.ContextCompat.getDrawable(
+                    this, R.drawable.bg_btn_outline
+                )
+                val rowPadH = (8 * density).toInt()
+                val rowPadV = (6 * density).toInt()
+                row.setPadding(rowPadH, rowPadV, rowPadH, rowPadV)
+                val rowLp = android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                rowLp.topMargin = (4 * density).toInt()
+                row.layoutParams = rowLp
+
+                val candAvSize = (28 * density).toInt()
+                val iv = android.widget.ImageView(this)
+                val ivLp = android.widget.LinearLayout.LayoutParams(candAvSize, candAvSize)
+                ivLp.marginEnd = (8 * density).toInt()
+                iv.layoutParams = ivLp
+                iv.setBackgroundResource(R.drawable.bg_avatar_placeholder)
+                if (zc.avatarUrl.isNotBlank()) {
+                    iv.load(zc.avatarUrl) {
+                        crossfade(true)
+                        placeholder(R.drawable.bg_avatar_placeholder)
+                        error(R.drawable.bg_avatar_placeholder)
+                        transformations(coil.transform.CircleCropTransformation())
+                    }
+                }
+                row.addView(iv)
+
+                val txtCol = android.widget.LinearLayout(this)
+                txtCol.orientation = android.widget.LinearLayout.VERTICAL
+                txtCol.layoutParams = android.widget.LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+                )
+
+                val tvLine1 = TextView(this)
+                val phones = zc.phoneList()
+                val phoneStr = if (phones.isNotEmpty()) " · ${phones.joinToString(",")}" else ""
+                tvLine1.text = "${zc.name}$phoneStr"
+                tvLine1.textSize = 11f
+                tvLine1.setTextColor(0xFF263238.toInt())
+                tvLine1.setTypeface(tvLine1.typeface, android.graphics.Typeface.BOLD)
+                tvLine1.maxLines = 1
+                tvLine1.ellipsize = android.text.TextUtils.TruncateAt.END
+                txtCol.addView(tvLine1)
+
+                val tvLine2 = TextView(this)
+                val tStr = if (zc.lastMsgAt > 0) timeFmtCand.format(java.util.Date(zc.lastMsgAt)) else "—"
+                tvLine2.text = "${zc.zaloId} · $tStr"
+                tvLine2.textSize = 9f
+                tvLine2.setTextColor(0xFF90A4AE.toInt())
+                tvLine2.maxLines = 1
+                tvLine2.ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                txtCol.addView(tvLine2)
+
+                row.addView(txtCol)
+                row.setOnClickListener { onPickCandidate(index, zc) }
+                card.addView(row)
+            }
+        } else if (!ord.matched && ord.customerName.isNotBlank()) {
             val tvWarn = TextView(this)
             tvWarn.text = "⚠ Không tìm thấy zaloId cho \"${ord.customerName}\""
             tvWarn.textSize = 10f
