@@ -211,10 +211,30 @@ class MessagesDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAM
     fun appendAddressToZaloChat(zaloId: String, address: String): Boolean =
         appendMulti(zaloId, "address", address)
 
-    fun setChatTypeByZaloId(zaloId: String, chatType: String) {
+    fun setChatTypeByZaloId(
+        zaloId: String,
+        chatType: String,
+        fallbackName: String = "",
+        fallbackAvatarUrl: String = "",
+        fallbackIsGroup: Boolean = false
+    ) {
         if (zaloId.isBlank()) return
+        val db = writableDatabase
         val cv = ContentValues().apply { put("chat_type", chatType) }
-        writableDatabase.update(T_CHATS, cv, "zalo_id = ?", arrayOf(zaloId))
+        val rows = db.update(T_CHATS, cv, "zalo_id = ?", arrayOf(zaloId))
+        if (rows > 0) return
+        val ins = ContentValues().apply {
+            put("zalo_id", zaloId)
+            put("name", fallbackName)
+            put("avatar_url", fallbackAvatarUrl)
+            put("is_group", if (fallbackIsGroup) 1 else 0)
+            put("chat_type", chatType)
+            put("created_at", System.currentTimeMillis())
+            put("last_msg_at", 0L)
+            put("last_msg_text", "")
+            put("status", "active")
+        }
+        db.insert(T_CHATS, null, ins)
     }
 
     fun deleteZaloChat(id: Long) {

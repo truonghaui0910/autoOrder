@@ -57,12 +57,13 @@ object OrderExtractor {
 
     private var pendingPeer: String? = null
     private var pendingAnimId: String? = null
+    private var pendingAvatarUrl: String? = null
     private var pendingOrder: ParsedOrder? = null
     var onOrderSaved: (() -> Unit)? = null
     private var floatingView: View? = null
     private var floatingHost: ViewGroup? = null
 
-    fun extractAndShow(ctx: Context, animId: String, peerName: String, messagesJson: String) {
+    fun extractAndShow(ctx: Context, animId: String, peerName: String, avatarUrl: String, messagesJson: String) {
         if (ANTHROPIC_KEY.isBlank()) {
             main.post {
                 AlertDialog.Builder(ctx)
@@ -116,7 +117,7 @@ object OrderExtractor {
             val result = runCatching { callClaude(transcript, peerName, products, productsById) }
             main.post {
                 runCatching { loading.dismiss() }
-                result.onSuccess { showPopup(ctx, animId, peerName, it) }
+                result.onSuccess { showPopup(ctx, animId, peerName, avatarUrl, it) }
                     .onFailure {
                         Log.e(TAG, "Claude fail", it)
                         AlertDialog.Builder(ctx)
@@ -368,10 +369,11 @@ object OrderExtractor {
         }
     }
 
-    private fun showPopup(ctx: Context, animId: String, peerName: String, order: ParsedOrder) {
+    private fun showPopup(ctx: Context, animId: String, peerName: String, avatarUrl: String, order: ParsedOrder) {
         removeFloating()
         pendingPeer = peerName
         pendingAnimId = animId
+        pendingAvatarUrl = avatarUrl
         pendingOrder = order
 
         val zaloChat = if (animId.isNotBlank())
@@ -396,8 +398,8 @@ object OrderExtractor {
         val qrStatus = view.findViewById<android.widget.TextView>(R.id.qrStatus)
         view.findViewById<android.widget.TextView>(R.id.bankInfo).text = BankQr.infoText(ctx)
         val imgAvatar = view.findViewById<ImageView>(R.id.imgAvatar)
-        if (zaloChat != null && zaloChat.avatarUrl.isNotBlank()) {
-            imgAvatar.load(zaloChat.avatarUrl) {
+        if (avatarUrl.isNotBlank()) {
+            imgAvatar.load(avatarUrl) {
                 crossfade(true)
                 placeholder(R.drawable.bg_avatar_placeholder)
                 error(R.drawable.bg_avatar_placeholder)
@@ -411,7 +413,14 @@ object OrderExtractor {
             if (animId.isBlank()) return@setOnCheckedChangeListener
             val newType = if (isChecked) "customer" else "normal"
             io.execute {
-                runCatching { MessagesDb(ctx).setChatTypeByZaloId(animId, newType) }
+                runCatching {
+                    MessagesDb(ctx).setChatTypeByZaloId(
+                        animId, newType,
+                        fallbackName = peerName,
+                        fallbackAvatarUrl = avatarUrl,
+                        fallbackIsGroup = animId.startsWith("g")
+                    )
+                }
             }
         }
         val phoneSavedScroll = view.findViewById<View>(R.id.phoneSavedScroll)
@@ -677,6 +686,7 @@ object OrderExtractor {
         view.findViewById<View>(R.id.btnDismiss).setOnClickListener {
             pendingPeer = null
             pendingAnimId = null
+            pendingAvatarUrl = null
             pendingOrder = null
             dialog.dismiss()
         }
@@ -966,7 +976,7 @@ object OrderExtractor {
             val peer = pendingPeer
             val order = pendingOrder
             if (peer != null && order != null) {
-                showPopup(ctx, pendingAnimId ?: "", peer, order)
+                showPopup(ctx, pendingAnimId ?: "", peer, pendingAvatarUrl ?: "", order)
             } else {
                 removeFloating()
             }

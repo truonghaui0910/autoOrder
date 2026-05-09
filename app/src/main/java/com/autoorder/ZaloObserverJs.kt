@@ -108,17 +108,20 @@ internal const val ZALO_OBSERVER_JS = """
     var selRel = document.querySelector('.conv-rel.selected');
     var peerName = '';
     var animId = '';
+    var avatarUrl = '';
     if (selRel) {
       var item = (selRel.closest && selRel.closest('.msg-item')) || selRel;
       animId = item.getAttribute && (item.getAttribute('anim-data-id') || '') || '';
       var nameInner = item.querySelector('.conv-item-title__name .truncate');
       var nameEl = nameInner || item.querySelector('.conv-item-title__name');
       peerName = nameEl ? snippet((nameEl.innerText || '').trim(), 100) : '';
+      var imgEl = item.querySelector('.zavatar img');
+      if (imgEl && imgEl.src) avatarUrl = imgEl.src;
     }
     var container = document.getElementById('messageViewScroll') ||
                     document.getElementById('messageViewContainer');
     if (!container) {
-      AutoOrderBridge.onConversation(animId, peerName, '[]');
+      AutoOrderBridge.onConversation(animId, peerName, avatarUrl, '[]');
       return;
     }
     var nodes = container.querySelectorAll('.chat-item');
@@ -138,7 +141,7 @@ internal const val ZALO_OBSERVER_JS = """
       if (!text) continue;
       arr.push({ from: isMe ? 'me' : 'them', text: snippet(text, 2000) });
     }
-    AutoOrderBridge.onConversation(animId, peerName, JSON.stringify(arr));
+    AutoOrderBridge.onConversation(animId, peerName, avatarUrl, JSON.stringify(arr));
   };
 
   function reportConvItem(item) {

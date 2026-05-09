@@ -318,10 +318,10 @@ class ChatWebActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
-        fun onConversation(animId: String, peerName: String, messagesJson: String) {
+        fun onConversation(animId: String, peerName: String, avatarUrl: String, messagesJson: String) {
             Log.i(TAG, "EXTRACT anim='$animId' peer='$peerName' msgs=${messagesJson.take(200)}")
             mainHandler.post {
-                OrderExtractor.extractAndShow(this@ChatWebActivity, animId, peerName, messagesJson)
+                OrderExtractor.extractAndShow(this@ChatWebActivity, animId, peerName, avatarUrl, messagesJson)
             }
         }
 
