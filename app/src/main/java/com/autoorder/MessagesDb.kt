@@ -239,6 +239,31 @@ class MessagesDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAM
     fun appendAddressToZaloChat(zaloId: String, address: String): Boolean =
         appendMulti(zaloId, "address", address)
 
+    /**
+     * Khi lưu đơn từ batch checkout: nâng chat_type 'normal' → 'customer'
+     * và lưu phone/address nếu hiện đang rỗng. Trả true nếu có cập nhật.
+     */
+    fun markAsCustomer(zaloId: String, phone: String, address: String): Boolean {
+        if (zaloId.isBlank()) return false
+        val db = writableDatabase
+        db.rawQuery(
+            "SELECT chat_type, phone, address FROM $T_CHATS WHERE zalo_id = ?",
+            arrayOf(zaloId)
+        ).use { c ->
+            if (!c.moveToFirst()) return false
+            val curType = c.getString(0) ?: "normal"
+            val curPhone = c.getString(1) ?: ""
+            val curAddr = c.getString(2) ?: ""
+            val cv = ContentValues()
+            if (curType == "normal") cv.put("chat_type", "customer")
+            if (curPhone.isBlank() && phone.isNotBlank()) cv.put("phone", phone.trim())
+            if (curAddr.isBlank() && address.isNotBlank()) cv.put("address", address.trim())
+            if (cv.size() == 0) return false
+            db.update(T_CHATS, cv, "zalo_id = ?", arrayOf(zaloId))
+            return true
+        }
+    }
+
     fun setChatTypeByZaloId(
         zaloId: String,
         chatType: String,

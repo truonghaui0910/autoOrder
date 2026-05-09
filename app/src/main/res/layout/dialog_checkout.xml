@@ -130,7 +130,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:layout_marginTop="14dp"
-                android:weightSum="2">
+                android:weightSum="3">
 
                 <Button
                     android:id="@+id/btnReadMessages"
@@ -148,8 +148,20 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="44dp"
-                    android:layout_marginStart="8dp"
+                    android:layout_marginStart="6dp"
                     android:text="Phân Tích"
+                    android:textColor="#1E88E5"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_btn_outline" />
+
+                <Button
+                    android:id="@+id/btnSaveAll"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="6dp"
+                    android:text="Lưu Đơn"
                     android:textColor="#1E88E5"
                     android:textAllCaps="false"
                     android:textStyle="bold"

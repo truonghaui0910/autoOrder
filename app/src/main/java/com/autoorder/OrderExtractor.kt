@@ -1137,24 +1137,29 @@ object OrderExtractor {
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
 
             val now = System.currentTimeMillis()
+            val orderDate = orderDateFormat.format(Date(now))
+            val total = validItems.sumOf { it.lineTotal }
             val record = OrderRecord(
                 createdAt = now,
-                orderDate = orderDateFormat.format(Date(now)),
+                orderDate = orderDate,
                 convName = peerName,
                 senderName = order.senderName.trim(),
                 phone = order.phone.trim(),
                 address = order.address.trim(),
                 itemsText = itemsText,
                 rawJson = order.rawJson,
-                totalAmount = validItems.sumOf { it.lineTotal },
+                totalAmount = total,
                 note = order.orderNote.trim(),
-                zaloId = animId
+                zaloId = animId,
+                orderCode = OrderRecord.makeCode(animId, orderDate, total)
             )
-            val newId = runCatching { ShopDb(ctx).insertOrder(record, validItems) }
-            newId.onSuccess { id ->
-                Log.i(TAG, "ORDER saved id=$id total=${record.totalAmount} items=${validItems.size}")
+            val newId = runCatching { ShopDb(ctx).insertOrderWithDedup(record, validItems) }
+            newId.onSuccess { (id, isNew) ->
+                val msg = if (isNew) "Đã lưu đơn #$id & copy vào clipboard"
+                          else "Đơn đã tồn tại (#$id). Đã copy vào clipboard"
+                Log.i(TAG, "ORDER ${if (isNew) "saved" else "duplicate"} id=$id code=${record.orderCode} total=${record.totalAmount} items=${validItems.size}")
                 android.widget.Toast.makeText(
-                    ctx, "Đã lưu đơn #$id & copy vào clipboard", android.widget.Toast.LENGTH_SHORT
+                    ctx, msg, android.widget.Toast.LENGTH_SHORT
                 ).show()
                 pendingPeer = null
                 pendingAnimId = null

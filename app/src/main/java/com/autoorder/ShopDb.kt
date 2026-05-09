@@ -39,14 +39,25 @@ data class OrderRecord(
     val totalAmount: Long,
     val note: String = "",
     val paid: Boolean = false,
-    val zaloId: String = ""
-)
+    val zaloId: String = "",
+    val orderCode: String = ""
+) {
+    companion object {
+        /** zaloid_yyyymmdd_totalK, ví dụ 250.000 → 250k. orderDate dạng yyyy-MM-dd. */
+        fun makeCode(zaloId: String, orderDate: String, totalAmount: Long): String {
+            val zid = zaloId.ifBlank { "noid" }
+            val ymd = orderDate.replace("-", "")
+            val totalK = ((totalAmount + 500) / 1000)
+            return "${zid}_${ymd}_${totalK}k"
+        }
+    }
+}
 
 class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, null, DB_VERSION) {
 
     companion object {
         const val DB_NAME = "shop.db"
-        const val DB_VERSION = 3
+        const val DB_VERSION = 4
         const val T_PROD = "products"
         const val T_ORD = "orders"
         const val T_OI = "order_items"
@@ -86,13 +97,15 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 total_amount INTEGER NOT NULL DEFAULT 0,
                 note TEXT,
                 paid INTEGER NOT NULL DEFAULT 0,
-                zalo_id TEXT
+                zalo_id TEXT,
+                order_code TEXT
             )
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX idx_ord_date ON $T_ORD(order_date)")
         db.execSQL("CREATE INDEX idx_ord_phone ON $T_ORD(phone)")
         db.execSQL("CREATE INDEX idx_ord_zaloid ON $T_ORD(zalo_id)")
+        db.execSQL("CREATE UNIQUE INDEX idx_ord_code ON $T_ORD(order_code) WHERE order_code IS NOT NULL")
 
         db.execSQL(
             """
@@ -123,6 +136,10 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         if (oldVersion < 3) {
             db.execSQL("ALTER TABLE $T_ORD ADD COLUMN zalo_id TEXT")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_ord_zaloid ON $T_ORD(zalo_id)")
+        }
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE $T_ORD ADD COLUMN order_code TEXT")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_ord_code ON $T_ORD(order_code) WHERE order_code IS NOT NULL")
         }
     }
 
@@ -525,6 +542,26 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         return 0
     }
 
+    fun getOrderIdByCode(orderCode: String): Long {
+        if (orderCode.isBlank()) return -1L
+        readableDatabase.rawQuery(
+            "SELECT id FROM $T_ORD WHERE order_code = ? LIMIT 1",
+            arrayOf(orderCode)
+        ).use { c -> if (c.moveToFirst()) return c.getLong(0) }
+        return -1L
+    }
+
+    /**
+     * Trả về (id, isNew). Nếu order_code đã tồn tại → trả lại id cũ, isNew=false (không insert lại).
+     */
+    fun insertOrderWithDedup(order: OrderRecord, items: List<OrderItem>): Pair<Long, Boolean> {
+        if (order.orderCode.isNotBlank()) {
+            val existing = getOrderIdByCode(order.orderCode)
+            if (existing > 0) return existing to false
+        }
+        return insertOrder(order, items) to true
+    }
+
     fun insertOrder(order: OrderRecord, items: List<OrderItem>): Long {
         val db = writableDatabase
         db.beginTransaction()
@@ -542,6 +579,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 put("note", order.note)
                 put("paid", if (order.paid) 1 else 0)
                 put("zalo_id", order.zaloId)
+                if (order.orderCode.isNotBlank()) put("order_code", order.orderCode)
             }
             val orderId = db.insert(T_ORD, null, cv)
             items.forEach { oi ->

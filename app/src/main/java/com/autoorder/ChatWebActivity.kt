@@ -2,6 +2,7 @@ package com.autoorder
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -287,9 +288,11 @@ class ChatWebActivity : AppCompatActivity() {
         val tvDate = view.findViewById<TextView>(R.id.tvDate)
         val btnRead = view.findViewById<android.widget.Button>(R.id.btnReadMessages)
         val btnAnalyze = view.findViewById<android.widget.Button>(R.id.btnAnalyze)
+        val btnSaveAll = view.findViewById<android.widget.Button>(R.id.btnSaveAll)
         val btnDismiss = view.findViewById<View>(R.id.btnDismiss)
         val btnMinimize = view.findViewById<View>(R.id.btnMinimize)
         btnAnalyze.isEnabled = false
+        btnSaveAll.isEnabled = false
         val tvStatus = view.findViewById<TextView>(R.id.tvStatus)
         val tvMessagesLabel = view.findViewById<TextView>(R.id.tvMessagesLabel)
         val messagesContainer = view.findViewById<android.widget.LinearLayout>(R.id.messagesContainer)
@@ -340,6 +343,7 @@ class ChatWebActivity : AppCompatActivity() {
         val ordersByIndex = LinkedHashMap<Int, OrderExtractor.BatchOrder>()
         val loadingIndices = mutableSetOf<Int>()
         val analyzedIndices = mutableSetOf<Int>()
+        val savedIndices = mutableSetOf<Int>()
         var currentChatName = ""
         var currentDate = ""
 
@@ -358,21 +362,89 @@ class ChatWebActivity : AppCompatActivity() {
         lateinit var rerender: () -> Unit
         lateinit var analyzeOne: (Int) -> Unit
         lateinit var analyzeMany: (List<Int>) -> Unit
+        lateinit var saveOne: (Int) -> Unit
 
         rerender = {
             renderPairedRows(
                 messagesContainer, texts, timesMs,
-                ordersByIndex, loadingIndices, analyzedIndices, analyzeOne
+                ordersByIndex, loadingIndices, analyzedIndices, savedIndices,
+                analyzeOne, saveOne
             )
             btnAnalyze.isEnabled = texts.isNotEmpty() &&
                 (texts.indices).any { it !in analyzedIndices && it !in loadingIndices }
+            btnSaveAll.isEnabled = ordersByIndex.values.any {
+                it.matched && it.messageIndex !in savedIndices && it.items.isNotEmpty()
+            }
             updateStatus()
+        }
+
+        val isoDateFmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        }
+        saveOne = { idx ->
+            val ord = ordersByIndex[idx]
+            val tMs = timesMs.getOrNull(idx) ?: 0L
+            when {
+                ord == null -> Unit
+                !ord.matched -> Toast.makeText(
+                    this, "Đơn chưa khớp Zalo, không thể lưu", Toast.LENGTH_SHORT
+                ).show()
+                ord.items.isEmpty() -> Toast.makeText(
+                    this, "Đơn không có món", Toast.LENGTH_SHORT
+                ).show()
+                idx in savedIndices -> Unit
+                else -> {
+                    val orderDate = isoDateFmt.format(java.util.Date(if (tMs > 0) tMs else System.currentTimeMillis()))
+                    val total = ord.items.sumOf { it.lineTotal }
+                    val record = OrderRecord(
+                        createdAt = if (tMs > 0) tMs else System.currentTimeMillis(),
+                        orderDate = orderDate,
+                        convName = currentChatName,
+                        senderName = ord.customerName.trim(),
+                        phone = ord.phone.trim(),
+                        address = ord.address.trim(),
+                        itemsText = ord.items.joinToString("\n") { oi ->
+                            val q = if (oi.quantity == oi.quantity.toLong().toDouble())
+                                oi.quantity.toLong().toString() else oi.quantity.toString()
+                            "$q × ${oi.productName}" + if (oi.note.isNotBlank()) " (${oi.note})" else ""
+                        },
+                        rawJson = ord.rawJson,
+                        totalAmount = total,
+                        note = ord.orderNote.trim(),
+                        zaloId = ord.zaloId,
+                        orderCode = OrderRecord.makeCode(ord.zaloId, orderDate, total)
+                    )
+                    ioExecutor.execute {
+                        val res = runCatching { ShopDb(this).insertOrderWithDedup(record, ord.items) }
+                        runCatching {
+                            MessagesDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address)
+                        }
+                        mainHandler.post {
+                            res.onSuccess { (id, isNew) ->
+                                savedIndices.add(idx)
+                                rerender()
+                                Toast.makeText(
+                                    this,
+                                    if (isNew) "Đã lưu đơn #$id (${record.orderCode})"
+                                    else "Đơn đã tồn tại #$id (${record.orderCode})",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                runCatching { OrderExtractor.onOrderSaved?.invoke() }
+                            }.onFailure { e ->
+                                Log.e(TAG, "save fail idx=$idx", e)
+                                Toast.makeText(this, "Lỗi lưu: ${e.message ?: "?"}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         analyzeOne = { idx ->
             if (idx in 0 until texts.size && idx !in loadingIndices) {
                 loadingIndices.add(idx)
                 ordersByIndex.remove(idx)
+                savedIndices.remove(idx)
                 rerender()
                 val input = org.json.JSONArray()
                     .put(org.json.JSONObject().put("index", idx).put("text", texts[idx]))
@@ -401,6 +473,7 @@ class ChatWebActivity : AppCompatActivity() {
                 indices.forEach {
                     loadingIndices.add(it)
                     ordersByIndex.remove(it)
+                    savedIndices.remove(it)
                 }
                 rerender()
                 val input = org.json.JSONArray().apply {
@@ -462,6 +535,7 @@ class ChatWebActivity : AppCompatActivity() {
             messagesContainer.removeAllViews()
             texts = emptyList(); timesMs = emptyList()
             ordersByIndex.clear(); loadingIndices.clear(); analyzedIndices.clear()
+            savedIndices.clear()
             btnRead.isEnabled = false
             btnAnalyze.isEnabled = false
 
@@ -518,6 +592,18 @@ class ChatWebActivity : AppCompatActivity() {
             analyzeMany(pending)
         }
 
+        btnSaveAll.setOnClickListener {
+            val toSave = ordersByIndex.values.filter {
+                it.matched && it.messageIndex !in savedIndices && it.items.isNotEmpty()
+            }.map { it.messageIndex }
+            if (toSave.isEmpty()) {
+                Toast.makeText(this, "Không có đơn nào để lưu", Toast.LENGTH_SHORT).show()
+            } else {
+                toSave.forEach { saveOne(it) }
+                Toast.makeText(this, "Đang lưu ${toSave.size} đơn...", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         dialog.setOnDismissListener {
             checkoutCallback = null
             if (checkoutDialog === dialog) {
@@ -535,7 +621,9 @@ class ChatWebActivity : AppCompatActivity() {
         ordersByIndex: Map<Int, OrderExtractor.BatchOrder>,
         loadingIndices: Set<Int>,
         analyzedIndices: Set<Int>,
-        onAnalyzeOne: (Int) -> Unit
+        savedIndices: Set<Int>,
+        onAnalyzeOne: (Int) -> Unit,
+        onSaveOne: (Int) -> Unit
     ) {
         container.removeAllViews()
         val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).apply {
@@ -610,23 +698,13 @@ class ChatWebActivity : AppCompatActivity() {
             when {
                 isLoading -> rightCol.addView(buildLoadingCard(padH, padV, density))
                 isAnalyzed && order != null -> {
-                    rightCol.addView(buildOrderCard(order, padH, padV, density))
-                    rightCol.addView(buildAnalyzeButton(i, "↻ Phân tích lại", density, onAnalyzeOne))
+                    rightCol.addView(buildOrderCard(
+                        order, i, i in savedIndices,
+                        padH, padV, density, onAnalyzeOne, onSaveOne
+                    ))
                 }
                 isAnalyzed -> {
-                    val placeholder = TextView(this)
-                    placeholder.text = "(không phải đơn)"
-                    placeholder.setPadding(padH, padV, padH, padV)
-                    placeholder.textSize = 11f
-                    placeholder.setTextColor(0xFF90A4AE.toInt())
-                    placeholder.background = androidx.core.content.ContextCompat.getDrawable(
-                        this, R.drawable.bg_input_field
-                    )
-                    rightCol.addView(placeholder, android.widget.LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ))
-                    rightCol.addView(buildAnalyzeButton(i, "↻ Phân tích lại", density, onAnalyzeOne))
+                    rightCol.addView(buildNotOrderCard(i, padH, padV, density, onAnalyzeOne))
                 }
                 else -> rightCol.addView(buildAnalyzeButton(i, "Phân tích", density, onAnalyzeOne))
             }
@@ -697,22 +775,91 @@ class ChatWebActivity : AppCompatActivity() {
         return row
     }
 
-    private fun buildOrderCard(
-        ord: OrderExtractor.BatchOrder,
-        padH: Int, padV: Int, density: Float
+    private fun buildNotOrderCard(
+        index: Int, padH: Int, padV: Int, density: Float,
+        onAnalyzeOne: (Int) -> Unit
     ): View {
-        val card = android.widget.LinearLayout(this)
-        card.orientation = android.widget.LinearLayout.VERTICAL
-        card.setPadding(padH, padV, padH, padV)
-        card.background = androidx.core.content.ContextCompat.getDrawable(
-            this, R.drawable.bg_input_field
-        )
-        val cardLp = android.widget.LinearLayout.LayoutParams(
+        val frame = android.widget.FrameLayout(this)
+        val frameLp = android.widget.LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        cardLp.bottomMargin = (4 * density).toInt()
-        card.layoutParams = cardLp
+        frameLp.bottomMargin = (4 * density).toInt()
+        frame.layoutParams = frameLp
+
+        val tv = TextView(this)
+        tv.text = "(không phải đơn)"
+        tv.setPadding(padH, padV, (padH + 32 * density).toInt(), padV)
+        tv.textSize = 11f
+        tv.setTextColor(0xFF90A4AE.toInt())
+        tv.background = androidx.core.content.ContextCompat.getDrawable(
+            this, R.drawable.bg_input_field
+        )
+        frame.addView(tv, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        frame.addView(buildCornerIconButton(R.drawable.ic_refresh, 0xFF1E88E5.toInt(), density) {
+            onAnalyzeOne(index)
+        })
+        return frame
+    }
+
+    private fun buildCornerIconButton(
+        iconRes: Int, tintColor: Int, density: Float,
+        onClick: () -> Unit
+    ): View {
+        val size = (28 * density).toInt()
+        val iv = android.widget.ImageView(this)
+        iv.setImageResource(iconRes)
+        iv.setColorFilter(tintColor)
+        val pad = (5 * density).toInt()
+        iv.setPadding(pad, pad, pad, pad)
+        iv.background = androidx.core.content.ContextCompat.getDrawable(
+            this, android.R.drawable.btn_default
+        )?.mutate()
+        iv.isClickable = true
+        iv.isFocusable = true
+        iv.setOnClickListener { onClick() }
+        val lp = android.widget.FrameLayout.LayoutParams(
+            size, size,
+            android.view.Gravity.TOP or android.view.Gravity.END
+        )
+        lp.topMargin = (4 * density).toInt()
+        lp.rightMargin = (12 * density).toInt()
+        iv.layoutParams = lp
+        return iv
+    }
+
+    private fun buildOrderCard(
+        ord: OrderExtractor.BatchOrder,
+        index: Int,
+        isSaved: Boolean,
+        padH: Int, padV: Int, density: Float,
+        onAnalyzeOne: (Int) -> Unit,
+        onSaveOne: (Int) -> Unit
+    ): View {
+        val frame = android.widget.FrameLayout(this)
+        val frameLp = android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        frameLp.bottomMargin = (4 * density).toInt()
+        frame.layoutParams = frameLp
+
+        val card = android.widget.LinearLayout(this)
+        card.orientation = android.widget.LinearLayout.VERTICAL
+        // extra right padding so corner icons don't overlap content
+        val rightPad = (padH + 64 * density).toInt()
+        card.setPadding(padH, padV, rightPad, padV)
+        card.background = androidx.core.content.ContextCompat.getDrawable(
+            this, R.drawable.bg_input_field
+        )
+        frame.addView(card, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
 
         val priceFmt = java.text.NumberFormat.getInstance(java.util.Locale("vi", "VN"))
 
@@ -722,10 +869,10 @@ class ChatWebActivity : AppCompatActivity() {
             header.orientation = android.widget.LinearLayout.HORIZONTAL
             header.gravity = android.view.Gravity.CENTER_VERTICAL
 
-            val avatarSize = (24 * density).toInt()
+            val avatarSize = (40 * density).toInt()
             val avatar = android.widget.ImageView(this)
             val avLp = android.widget.LinearLayout.LayoutParams(avatarSize, avatarSize)
-            avLp.marginEnd = (6 * density).toInt()
+            avLp.marginEnd = (8 * density).toInt()
             avatar.layoutParams = avLp
             avatar.setBackgroundResource(R.drawable.bg_avatar_placeholder)
             if (ord.avatarUrl.isNotBlank()) {
@@ -745,14 +892,42 @@ class ChatWebActivity : AppCompatActivity() {
             )
             nameCol.layoutParams = nameColLp
 
+            val titleRow = android.widget.LinearLayout(this)
+            titleRow.orientation = android.widget.LinearLayout.HORIZONTAL
+            titleRow.gravity = android.view.Gravity.CENTER_VERTICAL
+
             val title = TextView(this)
-            title.text = "✓ $nameLabel"
+            title.text = nameLabel
             title.setTextColor(0xFF1E88E5.toInt())
-            title.textSize = 12f
+            title.textSize = 13f
             title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
             title.maxLines = 1
             title.ellipsize = android.text.TextUtils.TruncateAt.END
-            nameCol.addView(title)
+            val titleLp = android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            )
+            title.layoutParams = titleLp
+            titleRow.addView(title)
+
+            val copySize = (18 * density).toInt()
+            val copyPad = (2 * density).toInt()
+            val ivCopy = android.widget.ImageView(this)
+            ivCopy.setImageResource(R.drawable.ic_copy)
+            ivCopy.setColorFilter(0xFF90A4AE.toInt())
+            ivCopy.setPadding(copyPad, copyPad, copyPad, copyPad)
+            ivCopy.isClickable = true
+            ivCopy.isFocusable = true
+            ivCopy.setOnClickListener {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Tên Zalo", ord.customerName))
+                Toast.makeText(this, "Đã copy: ${ord.customerName}", Toast.LENGTH_SHORT).show()
+            }
+            val copyLp = android.widget.LinearLayout.LayoutParams(copySize, copySize)
+            copyLp.marginStart = (4 * density).toInt()
+            ivCopy.layoutParams = copyLp
+            titleRow.addView(ivCopy)
+
+            nameCol.addView(titleRow)
 
             val zid = TextView(this)
             zid.text = ord.zaloId
@@ -831,7 +1006,49 @@ class ChatWebActivity : AppCompatActivity() {
             tvWarn.setTextColor(0xFFEF6C00.toInt())
             card.addView(tvWarn)
         }
-        return card
+
+        // Corner icons: retry (top), save (below) — stacked vertically in top-right
+        val iconCol = android.widget.LinearLayout(this)
+        iconCol.orientation = android.widget.LinearLayout.VERTICAL
+        val iconColLp = android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.TOP or android.view.Gravity.END
+        )
+        iconColLp.topMargin = (4 * density).toInt()
+        iconColLp.rightMargin = (12 * density).toInt()
+        iconCol.layoutParams = iconColLp
+
+        val size = (28 * density).toInt()
+        fun mkIcon(iconRes: Int, tint: Int, enabled: Boolean = true, onClick: () -> Unit): android.widget.ImageView {
+            val iv = android.widget.ImageView(this)
+            iv.setImageResource(iconRes)
+            iv.setColorFilter(tint)
+            val pad = (5 * density).toInt()
+            iv.setPadding(pad, pad, pad, pad)
+            iv.background = androidx.core.content.ContextCompat.getDrawable(
+                this, R.drawable.bg_input_field
+            )
+            iv.isClickable = enabled
+            iv.isFocusable = enabled
+            iv.alpha = if (enabled) 1f else 0.4f
+            if (enabled) iv.setOnClickListener { onClick() }
+            val lp = android.widget.LinearLayout.LayoutParams(size, size)
+            lp.topMargin = (4 * density).toInt()
+            iv.layoutParams = lp
+            return iv
+        }
+
+        iconCol.addView(mkIcon(R.drawable.ic_refresh, 0xFF1E88E5.toInt()) { onAnalyzeOne(index) })
+        if (ord.matched) {
+            if (isSaved) {
+                iconCol.addView(mkIcon(R.drawable.ic_check_circle, 0xFF43A047.toInt(), enabled = false) {})
+            } else {
+                iconCol.addView(mkIcon(R.drawable.ic_save, 0xFF1E88E5.toInt()) { onSaveOne(index) })
+            }
+        }
+        frame.addView(iconCol)
+        return frame
     }
 
     private fun triggerExtractSelected() {
