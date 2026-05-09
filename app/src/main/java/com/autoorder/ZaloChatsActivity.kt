@@ -35,6 +35,9 @@ class ZaloChatsActivity : AppCompatActivity() {
             "Tên A→Z",
             "Tên Z→A"
         )
+        private val TYPE_FILTER_LABELS = listOf("Tất cả loại", "normal", "customer", "order")
+        private val TYPE_FILTER_VALUES = listOf("", "normal", "customer", "order")
+        private val KIND_FILTER_LABELS = listOf("Tất cả", "Cá nhân", "Group")
     }
 
     private lateinit var adapter: ZaloChatsAdapter
@@ -43,6 +46,8 @@ class ZaloChatsActivity : AppCompatActivity() {
     private lateinit var emptyView: View
     private lateinit var etSearch: EditText
     private lateinit var spSort: Spinner
+    private lateinit var spChatType: Spinner
+    private lateinit var spKind: Spinner
     private lateinit var db: MessagesDb
 
     private var allRows: List<ZaloChat> = emptyList()
@@ -57,14 +62,25 @@ class ZaloChatsActivity : AppCompatActivity() {
         emptyView = findViewById(R.id.emptyView)
         etSearch = findViewById(R.id.etSearch)
         spSort = findViewById(R.id.spSort)
+        spChatType = findViewById(R.id.spChatType)
+        spKind = findViewById(R.id.spKind)
 
-        spSort.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, SORT_LABELS
-        )
-        spSort.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+        val refilter = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = applyFilters()
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
+        spSort.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, SORT_LABELS
+        )
+        spSort.onItemSelectedListener = refilter
+        spChatType.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, TYPE_FILTER_LABELS
+        )
+        spChatType.onItemSelectedListener = refilter
+        spKind.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, KIND_FILTER_LABELS
+        )
+        spKind.onItemSelectedListener = refilter
         etSearch.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) = applyFilters()
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -97,9 +113,13 @@ class ZaloChatsActivity : AppCompatActivity() {
 
     private fun applyFilters() {
         val q = etSearch.text.toString().trim().lowercase()
-        val filtered = if (q.isBlank()) allRows
-        else allRows.filter {
-            it.name.lowercase().contains(q) || it.zaloId.lowercase().contains(q)
+        val typeIdx = spChatType.selectedItemPosition.coerceAtLeast(0)
+        val typeVal = TYPE_FILTER_VALUES.getOrNull(typeIdx).orEmpty()
+        val kindIdx = spKind.selectedItemPosition.coerceAtLeast(0)
+        val filtered = allRows.filter {
+            (q.isBlank() || it.name.lowercase().contains(q) || it.zaloId.lowercase().contains(q)) &&
+                (typeVal.isBlank() || it.chatType == typeVal) &&
+                (kindIdx == 0 || (kindIdx == 1 && !it.isGroup) || (kindIdx == 2 && it.isGroup))
         }
         val sorted = when (spSort.selectedItemPosition) {
             1 -> filtered.sortedBy { it.lastMsgAt }
@@ -108,7 +128,7 @@ class ZaloChatsActivity : AppCompatActivity() {
             else -> filtered.sortedByDescending { it.lastMsgAt }
         }
         adapter.submit(sorted)
-        headerCount.text = if (q.isBlank()) "${sorted.size} chat"
+        headerCount.text = if (sorted.size == allRows.size) "${sorted.size} chat"
         else "${sorted.size}/${allRows.size} chat"
         emptyView.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
         list.visibility = if (sorted.isEmpty()) View.GONE else View.VISIBLE
