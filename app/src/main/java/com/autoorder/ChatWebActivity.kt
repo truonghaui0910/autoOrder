@@ -256,21 +256,41 @@ class ChatWebActivity : AppCompatActivity() {
     private var checkoutCallback: ((String, String, String) -> Unit)? = null
     private var checkoutDialog: android.app.Dialog? = null
 
+    /**
+     * Nút icon: copy [value] vào clipboard, đồng thời search trên Zalo theo
+     * [searchMode] ("name"/"phone") rồi ẩn modal chốt đơn.
+     */
     private fun buildCopyIcon(
-        iconRes: Int, tint: Int, density: Float, label: String, value: String
+        iconRes: Int, tint: Int, density: Float, label: String, value: String,
+        searchMode: String? = null
     ): View {
-        val size = (18 * density).toInt()
-        val pad = (2 * density).toInt()
+        val size = (24 * density).toInt()
+        val pad = (4 * density).toInt()
         val iv = android.widget.ImageView(this)
         iv.setImageResource(iconRes)
         iv.setColorFilter(tint)
         iv.setPadding(pad, pad, pad, pad)
         iv.isClickable = true
         iv.isFocusable = true
+        iv.background = androidx.core.content.ContextCompat.getDrawable(
+            this, R.drawable.bg_input_field
+        )
         iv.setOnClickListener {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText(label, value))
             Toast.makeText(this, "Đã copy: $value", Toast.LENGTH_SHORT).show()
+            if (searchMode != null && value.isNotBlank()) {
+                checkoutDialog?.hide()
+                triggerSearch(value, searchMode) { status, _ ->
+                    if (status != "OK") {
+                        showErrorToast(when (status) {
+                            "NO_RESULT" -> "Không tìm thấy \"$value\" trên Zalo"
+                            "NO_INPUT" -> "Không tìm thấy ô tìm kiếm Zalo"
+                            else -> "Search lỗi: $status"
+                        })
+                    }
+                }
+            }
         }
         val lp = android.widget.LinearLayout.LayoutParams(size, size)
         lp.marginStart = (4 * density).toInt()
@@ -1043,11 +1063,13 @@ class ChatWebActivity : AppCompatActivity() {
             titleRow.addView(title)
 
             titleRow.addView(buildCopyIcon(
-                R.drawable.ic_copy, 0xFF90A4AE.toInt(), density, "Tên Zalo", ord.customerName
+                R.drawable.ic_copy, 0xFF90A4AE.toInt(), density, "Tên Zalo", ord.customerName,
+                searchMode = "name"
             ))
             if (ord.phone.isNotBlank()) {
                 titleRow.addView(buildCopyIcon(
-                    R.drawable.ic_phone_android, 0xFF1E88E5.toInt(), density, "SĐT", ord.phone
+                    R.drawable.ic_phone_android, 0xFF1E88E5.toInt(), density, "SĐT", ord.phone,
+                    searchMode = "phone"
                 ))
             }
 
@@ -1082,11 +1104,13 @@ class ChatWebActivity : AppCompatActivity() {
             titleRow.addView(title)
 
             titleRow.addView(buildCopyIcon(
-                R.drawable.ic_copy, 0xFF90A4AE.toInt(), density, "Tên Zalo", ord.customerName
+                R.drawable.ic_copy, 0xFF90A4AE.toInt(), density, "Tên Zalo", ord.customerName,
+                searchMode = "name"
             ))
             if (ord.phone.isNotBlank()) {
                 titleRow.addView(buildCopyIcon(
-                    R.drawable.ic_phone_android, 0xFF1E88E5.toInt(), density, "SĐT", ord.phone
+                    R.drawable.ic_phone_android, 0xFF1E88E5.toInt(), density, "SĐT", ord.phone,
+                    searchMode = "phone"
                 ))
             }
 
@@ -1266,7 +1290,7 @@ class ChatWebActivity : AppCompatActivity() {
         iconCol.addView(mkIcon(R.drawable.ic_refresh, 0xFF1E88E5.toInt()) { onAnalyzeOne(index) })
         if (ord.matched) {
             if (isSaved) {
-                iconCol.addView(mkIcon(R.drawable.ic_check_circle, 0xFF43A047.toInt(), enabled = false) {})
+                iconCol.addView(mkIcon(R.drawable.ic_database, 0xFF43A047.toInt(), enabled = false) {})
             } else {
                 iconCol.addView(mkIcon(R.drawable.ic_save, 0xFF1E88E5.toInt()) { onSaveOne(index) })
             }
