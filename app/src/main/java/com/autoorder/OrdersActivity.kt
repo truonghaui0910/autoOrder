@@ -7,6 +7,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.Bitmap
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
@@ -78,6 +81,20 @@ class OrdersActivity : AppCompatActivity() {
         timeZone = tz
     }
     private val titleDateFormat = SimpleDateFormat("HH:mm dd/MM/yyyy", Locale("vi", "VN"))
+    private val csvFileDateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply {
+        timeZone = tz
+    }
+    private val csvRowDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+        timeZone = tz
+    }
+
+    private val exportCsvLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val uri = result.data?.data
+            if (result.resultCode == RESULT_OK && uri != null) {
+                writeCsvToUri(uri)
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -193,6 +210,7 @@ class OrdersActivity : AppCompatActivity() {
         tabs[2].setOnClickListener { setTab(Tab.CUSTOMERS) }
 
         findViewById<View>(R.id.btnNewOrder).setOnClickListener { showCustomerPicker() }
+        findViewById<View>(R.id.btnExportCsv).setOnClickListener { startExportCsv() }
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnHome).setOnClickListener {
             startActivity(Intent(this, ChatWebActivity::class.java)
@@ -711,6 +729,85 @@ class OrdersActivity : AppCompatActivity() {
             .putExtra("check_payment_total", o.totalAmount)
             .putExtra("check_payment_sender", o.senderName)
             .putExtra("check_payment_avatar", avatarUrl))
+    }
+
+    private fun startExportCsv() {
+        val suffix = csvFileDateFormat.format(Date())
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/csv"
+            putExtra(Intent.EXTRA_TITLE, "orders_$suffix.csv")
+        }
+        try {
+            exportCsvLauncher.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Không mở được trình chọn file", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun writeCsvToUri(uri: Uri) {
+        val (from, to) = rangeFor(period)
+        val paid = paidArg()
+        val search = searchArg()
+        val orders = db.queryOrders(from, to, paid, search, limit = Int.MAX_VALUE)
+        if (orders.isEmpty()) {
+            Toast.makeText(this, "Không có đơn nào để xuất", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            contentResolver.openOutputStream(uri, "wt")?.use { os ->
+                os.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+                os.writer(Charsets.UTF_8).use { w ->
+                    val header = listOf(
+                        "id", "order_code", "created_at", "order_date",
+                        "sender_name", "conv_name", "phone", "address",
+                        "items", "total_amount", "paid", "note", "zalo_id"
+                    )
+                    w.append(header.joinToString(",") { csvEscape(it) }).append("\r\n")
+                    for (o in orders) {
+                        val items = db.queryOrderItems(o.id)
+                        val itemsStr = items.joinToString("; ") { it ->
+                            val q = if (it.quantity == it.quantity.toLong().toDouble())
+                                it.quantity.toLong().toString()
+                            else it.quantity.toString()
+                            val base = "$q x ${it.productName}"
+                            if (it.note.isNotBlank()) "$base (${it.note})" else base
+                        }
+                        val code = o.orderCode.ifBlank {
+                            OrderRecord.makeCode(o.zaloId, o.orderDate, o.totalAmount)
+                        }
+                        val row = listOf(
+                            o.id.toString(),
+                            code,
+                            csvRowDateFormat.format(Date(o.createdAt)),
+                            o.orderDate,
+                            o.senderName,
+                            o.convName,
+                            o.phone,
+                            o.address,
+                            itemsStr,
+                            o.totalAmount.toString(),
+                            if (o.paid) "1" else "0",
+                            o.note,
+                            o.zaloId
+                        )
+                        w.append(row.joinToString(",") { csvEscape(it) }).append("\r\n")
+                    }
+                }
+            } ?: run {
+                Toast.makeText(this, "Không mở được file để ghi", Toast.LENGTH_SHORT).show()
+                return
+            }
+            Toast.makeText(this, "Đã xuất ${orders.size} đơn", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Lỗi xuất CSV: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun csvEscape(s: String): String {
+        val needsQuote = s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r')
+        val escaped = s.replace("\"", "\"\"")
+        return if (needsQuote) "\"$escaped\"" else escaped
     }
 
     companion object {
