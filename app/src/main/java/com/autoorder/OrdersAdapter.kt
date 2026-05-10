@@ -17,7 +17,8 @@ import java.util.Locale
 class OrdersAdapter(
     private var items: List<OrderRecord>,
     private val onClick: (OrderRecord) -> Unit,
-    private val onTogglePaid: ((OrderRecord) -> Unit)? = null
+    private val onTogglePaid: ((OrderRecord) -> Unit)? = null,
+    private val onCheckPayment: ((OrderRecord) -> Unit)? = null
 ) : RecyclerView.Adapter<OrdersAdapter.VH>() {
 
     private val priceFormat = NumberFormat.getInstance(Locale("vi", "VN"))
@@ -38,6 +39,7 @@ class OrdersAdapter(
         val meta: TextView = v.findViewById(R.id.meta)
         val preview: TextView = v.findViewById(R.id.preview)
         val paidIcon: ImageView = v.findViewById(R.id.paidIcon)
+        val checkPaymentIcon: ImageView = v.findViewById(R.id.checkPaymentIcon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -77,6 +79,11 @@ class OrdersAdapter(
 
         bindPaidIcon(holder.paidIcon, o.paid)
         holder.paidIcon.setOnClickListener { onTogglePaid?.invoke(o) }
+
+        holder.checkPaymentIcon.setColorFilter(
+            if (o.paid) 0xFF90A4AE.toInt() else 0xFF1E88E5.toInt()
+        )
+        holder.checkPaymentIcon.setOnClickListener { onCheckPayment?.invoke(o) }
 
         holder.itemView.setOnClickListener { onClick(o) }
     }

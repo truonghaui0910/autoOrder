@@ -97,7 +97,8 @@ class OrdersActivity : AppCompatActivity() {
             onTogglePaid = { o ->
                 db.setOrderPaid(o.id, !o.paid)
                 refresh()
-            }
+            },
+            onCheckPayment = { o -> launchCheckPayment(o) }
         )
         soldAdapter = ProductsSoldAdapter(emptyList())
         customersAdapter = CustomersAdapter(emptyList())
@@ -140,6 +141,7 @@ class OrdersActivity : AppCompatActivity() {
                 val newQ = s?.toString()?.trim().orEmpty()
                 if (newQ != searchQuery) {
                     searchQuery = newQ
+                    AppPrefs.setOrdersSearch(this@OrdersActivity, newQ)
                     refresh()
                 }
             }
@@ -167,7 +169,6 @@ class OrdersActivity : AppCompatActivity() {
         paidChips[0].setOnClickListener { setPaidFilter(PaidFilter.ALL) }
         paidChips[1].setOnClickListener { setPaidFilter(PaidFilter.UNPAID) }
         paidChips[2].setOnClickListener { setPaidFilter(PaidFilter.PAID) }
-        setPaidFilter(PaidFilter.ALL)
 
         filterBody = findViewById(R.id.filterBody)
         filterChevron = findViewById(R.id.filterChevron)
@@ -213,8 +214,48 @@ class OrdersActivity : AppCompatActivity() {
             finish()
         }
 
-        setPeriod(Period.TODAY)
-        setTab(Tab.ORDERS)
+        // Restore filter state đã persist (giữ nguyên khi user quay lại từ
+        // Chat sau khi confirm thanh toán).
+        val savedRange = AppPrefs.getOrdersCustomRange(this)
+        customFrom = savedRange.first
+        customTo = savedRange.second
+        searchQuery = AppPrefs.getOrdersSearch(this)
+        if (searchQuery.isNotEmpty()) etSearch.setText(searchQuery)
+        setPaidFilter(runCatching { PaidFilter.valueOf(AppPrefs.getOrdersPaidFilter(this)) }
+            .getOrDefault(PaidFilter.ALL))
+        setPeriod(runCatching { Period.valueOf(AppPrefs.getOrdersPeriod(this)) }
+            .getOrDefault(Period.TODAY))
+        setTab(runCatching { Tab.valueOf(AppPrefs.getOrdersTab(this)) }
+            .getOrDefault(Tab.ORDERS))
+        consumeFocusExtra(intent)
+    }
+
+    private var pendingFocusOrderId: Long = -1L
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) {
+            setIntent(intent)
+            consumeFocusExtra(intent)
+        }
+    }
+
+    private fun consumeFocusExtra(src: Intent?) {
+        val id = src?.getLongExtra("focus_order_id", -1L) ?: -1L
+        if (id > 0) {
+            pendingFocusOrderId = id
+            src?.removeExtra("focus_order_id")
+        }
+    }
+
+    private fun highlightOrderRow(position: Int) {
+        list.postDelayed({
+            val vh = list.findViewHolderForAdapterPosition(position) ?: return@postDelayed
+            val itemView = vh.itemView
+            val originalBg = itemView.background
+            itemView.setBackgroundColor(0xFFFFF59D.toInt()) // vàng nhạt
+            itemView.postDelayed({ itemView.background = originalBg }, 1200L)
+        }, 80L)
     }
 
     override fun onResume() {
@@ -227,6 +268,7 @@ class OrdersActivity : AppCompatActivity() {
         chips.forEachIndexed { i, c -> c.isSelected = i == p.ordinal }
         val (from, to) = rangeFor(p)
         updateDateLabels(from, to)
+        AppPrefs.setOrdersPeriod(this, p.name)
         refresh()
     }
 
@@ -261,6 +303,8 @@ class OrdersActivity : AppCompatActivity() {
             period = Period.CUSTOM
             chips.forEach { it.isSelected = false }
             updateDateLabels(customFrom, customTo)
+            AppPrefs.setOrdersPeriod(this, Period.CUSTOM.name)
+            AppPrefs.setOrdersCustomRange(this, customFrom, customTo)
             refresh()
         }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
     }
@@ -268,6 +312,7 @@ class OrdersActivity : AppCompatActivity() {
     private fun setPaidFilter(f: PaidFilter) {
         paidFilter = f
         paidChips.forEachIndexed { i, c -> c.isSelected = i == f.ordinal }
+        AppPrefs.setOrdersPaidFilter(this, f.name)
         refresh()
     }
 
@@ -328,6 +373,7 @@ class OrdersActivity : AppCompatActivity() {
         if (::searchSection.isInitialized) {
             searchSection.visibility = if (t == Tab.ORDERS) View.VISIBLE else View.GONE
         }
+        AppPrefs.setOrdersTab(this, t.name)
         refresh()
     }
 
@@ -400,6 +446,17 @@ class OrdersActivity : AppCompatActivity() {
                 ordersAdapter.submit(rows, avatars)
                 emptyView.text = "Chưa có đơn nào trong khoảng đã chọn"
                 emptyView.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+                if (pendingFocusOrderId > 0) {
+                    val pos = rows.indexOfFirst { it.id == pendingFocusOrderId }
+                    if (pos >= 0) {
+                        list.post {
+                            (list.layoutManager as? LinearLayoutManager)
+                                ?.scrollToPositionWithOffset(pos, 0)
+                            highlightOrderRow(pos)
+                        }
+                    }
+                    pendingFocusOrderId = -1L
+                }
             }
             Tab.PRODUCTS -> {
                 val rows = db.productsSold(from, to, paid, limit = 100)
@@ -634,6 +691,26 @@ class OrdersActivity : AppCompatActivity() {
         }
 
         dialog.show()
+    }
+
+    private fun launchCheckPayment(o: OrderRecord) {
+        val phone = o.phone.trim()
+        if (phone.isBlank()) {
+            Toast.makeText(this, "Đơn không có SĐT", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val avatarUrl = if (o.zaloId.isNotBlank()) {
+            runCatching {
+                MessagesDb(this).getZaloChatByZaloId(o.zaloId)?.avatarUrl.orEmpty()
+            }.getOrDefault("")
+        } else ""
+        startActivity(Intent(this, ChatWebActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("check_payment_order_id", o.id)
+            .putExtra("check_payment_phone", phone)
+            .putExtra("check_payment_total", o.totalAmount)
+            .putExtra("check_payment_sender", o.senderName)
+            .putExtra("check_payment_avatar", avatarUrl))
     }
 
     companion object {

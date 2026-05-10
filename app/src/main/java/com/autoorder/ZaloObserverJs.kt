@@ -528,6 +528,234 @@ internal const val ZALO_OBSERVER_JS = """
     setTimeout(poll, 400);
   };
 
+  // Search SĐT → mở conv → đọc N tin cuối từ phía khách. Một call duy nhất,
+  // poll DOM thay vì delay cứng. Trả status: OK / NO_INPUT / NO_RESULT /
+  // NO_CONV_OPENED / EMPTY / NO_CONTAINER.
+  window.__autoOrderCheckPaymentByPhone = function(phone, limit) {
+    var lim = (typeof limit === 'number' && limit > 0) ? limit : 10;
+    function done(status, animId, peerName, avatarUrl, msgsJson) {
+      try {
+        AutoOrderBridge.onPaymentCheck(status, animId || '', peerName || '',
+          avatarUrl || '', msgsJson || '[]');
+      } catch (e) {}
+    }
+    function findInput() { return document.getElementById('contact-search-input'); }
+    function findCloseBtn() {
+      var nodes = document.querySelectorAll('[data-translate-inner="STR_CLOSE"]');
+      for (var i = 0; i < nodes.length; i++) {
+        var btn = nodes[i].closest('.z--btn--v2');
+        if (btn) return btn;
+      }
+      return null;
+    }
+    function setReactInputValue(input, value) {
+      try {
+        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, value);
+      } catch (e) { input.value = value; }
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    // Ngưỡng đợi (theo số attempts × 200ms = thời gian).
+    var WAIT_MSGTAB_FULL = 25;   // ~5s đợi item thứ 2 trong msg-tab.
+    var WAIT_NO_MSGTAB = 30;     // ~6s đợi label STR_TAB_MESSAGE_NUM xuất hiện
+                                  // (chỉ áp dụng nếu chưa từng thấy label).
+
+    var sawMsgTab = false;
+
+    function pickFriend(attempts) {
+      // Ưu tiên TUYỆT ĐỐI: phần tử thứ 2 NẰM TRONG section STR_TAB_MESSAGE_NUM.
+      // Friend-item (kết quả khớp SĐT) thường render sớm hơn label msg-tab,
+      // nhưng nếu user search SĐT thì kỳ vọng vào conv chứ không phải contact
+      // info. Dùng "sticky flag" sawMsgTab: hễ thấy label rồi thì KHÔNG bao giờ
+      // fallback sang friend-item nữa, đợi đến khi msg-tab populate.
+      var tabLabel = document.querySelector('[data-translate-inner="STR_TAB_MESSAGE_NUM"]');
+      if (tabLabel) sawMsgTab = true;
+
+      if (sawMsgTab) {
+        if (tabLabel) {
+          var allMsgs = document.querySelectorAll('#searchResultList .search-message__item');
+          var msgsInTab = [];
+          for (var i = 0; i < allMsgs.length; i++) {
+            // 4 = Node.DOCUMENT_POSITION_FOLLOWING
+            if (tabLabel.compareDocumentPosition(allMsgs[i]) & 4) {
+              msgsInTab.push(allMsgs[i]);
+            }
+          }
+          if (msgsInTab.length >= 2) return { el: msgsInTab[1], kind: 'msg-tab', id: 'msgTab#2' };
+          if (msgsInTab.length === 1 && attempts >= WAIT_MSGTAB_FULL) {
+            return { el: msgsInTab[0], kind: 'msg-tab', id: 'msgTab#1' };
+          }
+        }
+        // Đã thấy msg-tab nhưng items chưa render đủ → đợi tiếp, KHÔNG fallback.
+        return null;
+      }
+
+      // Chưa từng thấy msg-tab label. Đợi đủ lâu rồi mới fallback.
+      if (attempts < WAIT_NO_MSGTAB) return null;
+      // Fallback 1: friend-item (chỉ khi xác định không có msg-tab).
+      var first = document.querySelector('#searchResultList [id^="friend-item-"]');
+      if (first) return { el: first, kind: 'friend', id: first.id };
+      // Fallback 2: bất kỳ search-message__item nào.
+      var msgs = document.querySelectorAll('#searchResultList .search-message__item');
+      if (msgs.length) return { el: msgs[0], kind: 'message', id: 'msg#1' };
+      return null;
+    }
+    function getOpenedAnimId() {
+      var sel = document.querySelector('.conv-rel.selected');
+      var item = sel ? (sel.closest && sel.closest('.msg-item')) : null;
+      return item ? (item.getAttribute('anim-data-id') || '') : '';
+    }
+    function clickHard(el) {
+      try { el.click(); } catch (e) {}
+      try {
+        var inner = el.querySelector('.conv-item-title__name')
+          || el.querySelector('.search-message__item__content')
+          || el;
+        inner.click();
+      } catch (e) {}
+      try {
+        ['mousedown','mouseup','click'].forEach(function(t){
+          el.dispatchEvent(new MouseEvent(t, { bubbles:true, cancelable:true, view:window }));
+        });
+      } catch (e) {}
+    }
+
+    var input = findInput();
+    if (!input) { done('NO_INPUT', '', '', '', '[]'); return; }
+    try { input.focus(); } catch (e) {}
+    setReactInputValue(input, phone);
+
+    var attempts = 0;
+    var maxAttempts = 75; // ~15s (đợi msg-tab load)
+    var clicked = false;
+    var clickedKind = '';
+    var clickedAtAttempt = 0;
+    var POST_CLICK_WAIT = 10; // ~2s sau click để conv mở xong rồi mới return OK.
+
+    function poll() {
+      attempts++;
+      if (clicked) {
+        // Đã click xong → chỉ đợi 2s cho conv visually open rồi return OK.
+        // Không verify sidebar selection (search msg-tab không update
+        // .conv-rel.selected). animId/peerName/avatar best-effort.
+        if (attempts - clickedAtAttempt >= POST_CLICK_WAIT) {
+          fetchAndDone(getOpenedAnimId());
+          return;
+        }
+        setTimeout(poll, 200);
+        return;
+      }
+      var pick = pickFriend(attempts);
+      if (pick) {
+        clicked = true;
+        clickedKind = pick.kind;
+        clickedAtAttempt = attempts;
+        clickHard(pick.el);
+        setTimeout(function() {
+          var btn = findCloseBtn();
+          if (btn) { try { btn.click(); } catch (e) {} }
+        }, 300);
+        setTimeout(poll, 200);
+        return;
+      }
+      if (attempts >= maxAttempts) {
+        done('NO_RESULT', '', '', '', '[]');
+        return;
+      }
+      setTimeout(poll, 200);
+    }
+
+    function fetchAndDone(animId) {
+      // Chỉ lấy peer name + avatar để hiển thị header trong modal nhỏ.
+      // Không đọc tin nhắn — user nhìn trực tiếp WebView phía sau modal.
+      var sidebarItem = null;
+      var items = document.querySelectorAll('.msg-item');
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].getAttribute('anim-data-id') === animId) { sidebarItem = items[i]; break; }
+      }
+      var peerName = '';
+      var avatarUrl = '';
+      if (sidebarItem) {
+        var nameInner = sidebarItem.querySelector('.conv-item-title__name .truncate');
+        var nameEl = nameInner || sidebarItem.querySelector('.conv-item-title__name');
+        peerName = nameEl ? snippet((nameEl.innerText || '').trim(), 100) : '';
+        var imgEl = sidebarItem.querySelector('.zavatar img');
+        if (imgEl && imgEl.src) avatarUrl = imgEl.src;
+      }
+      done('OK', animId, peerName, avatarUrl, '[]');
+    }
+
+    setTimeout(poll, 500);
+  };
+
+  // Đọc N tin cuối cùng KHÔNG phải mình gửi của hội thoại đang mở.
+  // Trả về { animId, peerName, avatarUrl, messages: [{text, images:[url]}] }.
+  // Phục vụ tính năng "kiểm tra thanh toán" trên màn đơn hàng.
+  window.__autoOrderFetchPaymentCheck = function(limit) {
+    var lim = (typeof limit === 'number' && limit > 0) ? limit : 10;
+    function done(status, animId, peerName, avatarUrl, msgsJson) {
+      try {
+        AutoOrderBridge.onPaymentCheck(status, animId || '', peerName || '',
+          avatarUrl || '', msgsJson || '[]');
+      } catch (e) {}
+    }
+    var selRel = document.querySelector('.conv-rel.selected');
+    var sidebarItem = selRel ? (selRel.closest && selRel.closest('.msg-item')) : null;
+    var animId = '';
+    var peerName = '';
+    var avatarUrl = '';
+    if (sidebarItem) {
+      animId = sidebarItem.getAttribute('anim-data-id') || '';
+      var nameInner = sidebarItem.querySelector('.conv-item-title__name .truncate');
+      var nameEl = nameInner || sidebarItem.querySelector('.conv-item-title__name');
+      peerName = nameEl ? snippet((nameEl.innerText || '').trim(), 100) : '';
+      var imgEl = sidebarItem.querySelector('.zavatar img');
+      if (imgEl && imgEl.src) avatarUrl = imgEl.src;
+    }
+    var c = document.getElementById('messageViewScroll') ||
+            document.getElementById('messageViewContainer');
+    if (!c) { done('NO_CONTAINER', animId, peerName, avatarUrl, '[]'); return; }
+    var nodes = c.querySelectorAll('.chat-item');
+    if (!nodes.length) { done('EMPTY', animId, peerName, avatarUrl, '[]'); return; }
+
+    var picked = [];
+    for (var i = nodes.length - 1; i >= 0 && picked.length < lim; i--) {
+      var it = nodes[i];
+      var cls = ' ' + (classOf(it) || '') + ' ';
+      var isMe = / me /.test(cls) || !!it.querySelector('.chat-body.me, .me');
+      if (isMe) continue;
+      var textEl = it.querySelector('[data-component=text-container]') ||
+                   it.querySelector('.text-message__container');
+      var text = textEl ? (textEl.innerText || '').trim() : '';
+      var imgs = it.querySelectorAll('.img-msg-v2 img, .photo-message-v2 img, .chat-photo-v2 img');
+      var images = [];
+      for (var k = 0; k < imgs.length; k++) {
+        var src = imgs[k].src || imgs[k].getAttribute('data-src') || '';
+        if (src) images.push(src);
+      }
+      if (!text && images.length === 0) {
+        if (it.querySelector('.sticker-message')) text = '[sticker]';
+        else if (it.querySelector('.video-message')) text = '[video]';
+        else if (it.querySelector('.file-message')) text = '[file]';
+        else continue;
+      }
+      var ts = NaN;
+      var idEl = it.id ? it : (it.querySelector && it.querySelector('[id^="bb_msg_id_"]'));
+      if (idEl && idEl.id) {
+        var m = idEl.id.match(/bb_msg_id_(\d+)/);
+        if (m) ts = parseInt(m[1], 10);
+      }
+      picked.push({
+        text: snippet(text, 2000),
+        images: images,
+        time: isNaN(ts) ? 0 : ts
+      });
+    }
+    picked.reverse();
+    done('OK', animId, peerName, avatarUrl, JSON.stringify(picked));
+  };
+
   AutoOrderBridge.onDump('init', '', 'Observer installed', '');
 })();
 """

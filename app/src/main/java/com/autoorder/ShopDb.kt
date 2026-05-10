@@ -551,6 +551,15 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         return -1L
     }
 
+    fun getOrderPaidByCode(orderCode: String): Pair<Long, Boolean>? {
+        if (orderCode.isBlank()) return null
+        readableDatabase.rawQuery(
+            "SELECT id, paid FROM $T_ORD WHERE order_code = ? LIMIT 1",
+            arrayOf(orderCode)
+        ).use { c -> if (c.moveToFirst()) return c.getLong(0) to (c.getInt(1) == 1) }
+        return null
+    }
+
     /**
      * Trả về (id, isNew). Nếu order_code đã tồn tại → trả lại id cũ, isNew=false (không insert lại).
      */

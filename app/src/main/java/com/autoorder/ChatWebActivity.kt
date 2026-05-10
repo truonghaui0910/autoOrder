@@ -198,8 +198,248 @@ class ChatWebActivity : AppCompatActivity() {
         if (intent?.getBooleanExtra("open_checkout", false) == true) {
             mainHandler.post { openCheckoutDialog() }
         }
+        handleCheckPaymentIntent(intent)
 
         OrderExtractor.onOrderSaved = { mainHandler.post { refreshCounter() } }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) setIntent(intent)
+        handleCheckPaymentIntent(intent)
+    }
+
+    private var checkPaymentDialog: android.app.Dialog? = null
+
+    private fun handleCheckPaymentIntent(intent: Intent?) {
+        if (intent == null) return
+        val orderId = intent.getLongExtra("check_payment_order_id", -1L)
+        val phone = intent.getStringExtra("check_payment_phone").orEmpty()
+        if (orderId <= 0 || phone.isBlank()) return
+        // Consume extras để onResume sau không trigger lại.
+        intent.removeExtra("check_payment_order_id")
+        intent.removeExtra("check_payment_phone")
+        val total = intent.getLongExtra("check_payment_total", 0L)
+        val sender = intent.getStringExtra("check_payment_sender").orEmpty()
+        val orderAvatar = intent.getStringExtra("check_payment_avatar").orEmpty()
+        intent.removeExtra("check_payment_total")
+        intent.removeExtra("check_payment_sender")
+        intent.removeExtra("check_payment_avatar")
+
+        val progress = android.app.Dialog(this, R.style.TransparentDialog)
+        progress.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val density = resources.displayMetrics.density
+        val pad = (20 * density).toInt()
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(pad, pad, pad, pad)
+            setBackgroundResource(R.drawable.bg_dialog_card)
+        }
+        box.addView(android.widget.ProgressBar(this).apply { isIndeterminate = true },
+            android.widget.LinearLayout.LayoutParams(
+                (24 * density).toInt(), (24 * density).toInt()
+            ).apply { marginEnd = (12 * density).toInt() })
+        box.addView(TextView(this).apply {
+            text = "Đang tìm \"$phone\" trên Zalo..."
+            textSize = 14f
+            setTextColor(0xFF263238.toInt())
+        })
+        progress.setContentView(box)
+        progress.setCancelable(true)
+        progress.setCanceledOnTouchOutside(true)
+        progress.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0x00000000))
+            setLayout(
+                (resources.displayMetrics.widthPixels * 0.85).toInt(),
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val cancelled = booleanArrayOf(false)
+        progress.setOnCancelListener {
+            cancelled[0] = true
+            Toast.makeText(this, "Đã huỷ kiểm tra", Toast.LENGTH_SHORT).show()
+        }
+        progress.show()
+
+        // Cho WebView 600ms để stable sau khi vừa resume từ background.
+        mainHandler.postDelayed({
+            if (cancelled[0]) return@postDelayed
+            triggerCheckPaymentByPhone(phone) { status, _, peerName, avatarUrl, json ->
+                if (cancelled[0]) return@triggerCheckPaymentByPhone
+                if (progress.isShowing) progress.dismiss()
+                when (status) {
+                    "OK" -> showCheckPaymentDialog(
+                        orderId, phone, total, sender, peerName,
+                        // Ưu tiên avatar đã lưu của Order (lookup từ DB ở Orders);
+                        // chỉ fallback sang avatar JS lấy từ sidebar khi DB trống.
+                        if (orderAvatar.isNotBlank()) orderAvatar else avatarUrl,
+                        json
+                    )
+                    "NO_RESULT" -> {
+                        Toast.makeText(this, "Không tìm thấy SĐT \"$phone\" trên Zalo", Toast.LENGTH_LONG).show()
+                        navigateBackToOrders()
+                    }
+                    "NO_INPUT" -> {
+                        Toast.makeText(this, "Không tìm thấy ô tìm kiếm Zalo", Toast.LENGTH_LONG).show()
+                        navigateBackToOrders()
+                    }
+                    "NO_CONV_OPENED" -> {
+                        Toast.makeText(this, "Tìm thấy nhưng không mở được hội thoại", Toast.LENGTH_LONG).show()
+                        navigateBackToOrders()
+                    }
+                    "EMPTY", "NO_CONTAINER" -> {
+                        Toast.makeText(this, "Không đọc được tin nhắn ($status)", Toast.LENGTH_LONG).show()
+                        navigateBackToOrders()
+                    }
+                    else -> {
+                        Toast.makeText(this, "Lỗi: $status", Toast.LENGTH_LONG).show()
+                        navigateBackToOrders()
+                    }
+                }
+            }
+        }, 600L)
+    }
+
+    private fun navigateBackToOrders(focusOrderId: Long = -1L) {
+        // Với launchMode=singleTask của Chat, Orders đã bị clear khi Chat brought-up.
+        // Phải startActivity tường minh để user quay lại danh sách đơn hàng.
+        // focusOrderId > 0 → Orders sẽ scroll & highlight đúng row đó.
+        val i = Intent(this, OrdersActivity::class.java)
+        if (focusOrderId > 0) i.putExtra("focus_order_id", focusOrderId)
+        startActivity(i)
+    }
+
+    private fun showCheckPaymentDialog(
+        orderId: Long, phone: String, totalAmount: Long, senderName: String,
+        peerName: String, avatarUrl: String, @Suppress("UNUSED_PARAMETER") messagesJson: String
+    ) {
+        val dialog = android.app.Dialog(this, R.style.TransparentDialog)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val density = resources.displayMetrics.density
+        val padH = (12 * density).toInt()
+        val padV = (10 * density).toInt()
+        val priceFmt = java.text.NumberFormat.getInstance(java.util.Locale("vi", "VN"))
+
+        // Modal nhỏ pin ở đáy màn hình, không dim, không chặn touch ngoài
+        // → user vẫn cuộn/click được Zalo WebView phía sau để đọc tin nhắn.
+        val row = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setBackgroundResource(R.drawable.bg_dialog_card)
+            setPadding(padH, padV, padH, padV)
+            elevation = 8 * density
+        }
+
+        val avSize = (32 * density).toInt()
+        val avatar = android.widget.ImageView(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(avSize, avSize).apply {
+                marginEnd = (8 * density).toInt()
+            }
+            setBackgroundResource(R.drawable.bg_avatar_placeholder)
+        }
+        if (avatarUrl.isNotBlank()) {
+            avatar.load(avatarUrl) {
+                crossfade(true)
+                placeholder(R.drawable.bg_avatar_placeholder)
+                error(R.drawable.bg_avatar_placeholder)
+                transformations(coil.transform.CircleCropTransformation())
+            }
+        }
+        row.addView(avatar)
+
+        val info = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            )
+        }
+        info.addView(TextView(this).apply {
+            text = peerName.ifBlank { senderName.ifBlank { phone } }
+            textSize = 13f
+            setTextColor(0xFF1E88E5.toInt())
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        info.addView(TextView(this).apply {
+            text = "#$orderId · ${priceFmt.format(totalAmount)}₫"
+            textSize = 10f
+            setTextColor(0xFF78909C.toInt())
+            maxLines = 1
+        })
+        row.addView(info)
+
+        val btnNo = android.widget.Button(this).apply {
+            text = "Chưa"
+            isAllCaps = false
+            textSize = 12f
+            setTextColor(0xFF546E7A.toInt())
+            setBackgroundResource(R.drawable.bg_btn_outline)
+            minWidth = (64 * density).toInt()
+            minimumWidth = (64 * density).toInt()
+            val pH = (10 * density).toInt()
+            val pV = (4 * density).toInt()
+            setPadding(pH, pV, pH, pV)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                (36 * density).toInt()
+            ).apply { marginStart = (6 * density).toInt() }
+        }
+        val btnYes = android.widget.Button(this).apply {
+            text = "Đã CK"
+            isAllCaps = false
+            textSize = 12f
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundResource(R.drawable.bg_btn_primary)
+            minWidth = (72 * density).toInt()
+            minimumWidth = (72 * density).toInt()
+            val pH = (10 * density).toInt()
+            val pV = (4 * density).toInt()
+            setPadding(pH, pV, pH, pV)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                (36 * density).toInt()
+            ).apply { marginStart = (6 * density).toInt() }
+        }
+        btnNo.setOnClickListener {
+            dialog.dismiss()
+            navigateBackToOrders(orderId)
+        }
+        btnYes.setOnClickListener {
+            if (!ioExecutor.isShutdown) {
+                ioExecutor.execute {
+                    runCatching { shopDb.setOrderPaid(orderId, true) }
+                    mainHandler.post {
+                        Toast.makeText(this, "Đã đánh dấu TT đơn #$orderId", Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                        navigateBackToOrders(orderId)
+                    }
+                }
+            }
+        }
+        row.addView(btnNo)
+        row.addView(btnYes)
+
+        dialog.setContentView(row)
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0x00000000))
+            // Không dim, không chặn touch ngoài modal.
+            setDimAmount(0f)
+            clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+            val attrs = attributes
+            attrs.gravity = android.view.Gravity.BOTTOM
+            attrs.y = (16 * density).toInt()
+            attributes = attrs
+            val w = (resources.displayMetrics.widthPixels * 0.94).toInt()
+            setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.setOnDismissListener {
+            if (checkPaymentDialog === dialog) checkPaymentDialog = null
+        }
+        checkPaymentDialog = dialog
+        dialog.show()
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -231,6 +471,26 @@ class ChatWebActivity : AppCompatActivity() {
 
     private var scanRecentDone: (() -> Unit)? = null
     private var searchDone: ((String, String) -> Unit)? = null
+    private var paymentCheckDone: ((String, String, String, String, String) -> Unit)? = null
+
+    fun triggerFetchPaymentCheck(onDone: (String, String, String, String, String) -> Unit) {
+        paymentCheckDone = onDone
+        webView.evaluateJavascript(
+            "window.__autoOrderFetchPaymentCheck && window.__autoOrderFetchPaymentCheck(10);", null
+        )
+    }
+
+    fun triggerCheckPaymentByPhone(
+        phone: String,
+        onDone: (String, String, String, String, String) -> Unit
+    ) {
+        paymentCheckDone = onDone
+        val safePhone = org.json.JSONObject.quote(phone)
+        webView.evaluateJavascript(
+            "window.__autoOrderCheckPaymentByPhone && window.__autoOrderCheckPaymentByPhone($safePhone, 10);",
+            null
+        )
+    }
 
     /**
      * Type [query] into Zalo's contact-search and click matching result, then close
@@ -417,6 +677,7 @@ class ChatWebActivity : AppCompatActivity() {
         val loadingIndices = mutableSetOf<Int>()
         val analyzedIndices = mutableSetOf<Int>()
         val savedIndices = mutableSetOf<Int>()
+        val savedOrderInfo = mutableMapOf<Int, Pair<Long, Boolean>>() // idx -> (orderId, paid)
         var currentChatName = ""
         var currentDate = ""
         var saveTotal = 0
@@ -452,6 +713,7 @@ class ChatWebActivity : AppCompatActivity() {
         lateinit var saveOne: (Int) -> Unit
         lateinit var pickCandidate: (Int, ZaloChat) -> Unit
         lateinit var checkAlreadySaved: (Int) -> Unit
+        lateinit var togglePaid: (Int) -> Unit
 
         pickCandidate = { idx, zc ->
             ordersByIndex[idx]?.let { ord ->
@@ -470,8 +732,8 @@ class ChatWebActivity : AppCompatActivity() {
         rerender = {
             renderPairedRows(
                 messagesContainer, texts, timesMs,
-                ordersByIndex, loadingIndices, analyzedIndices, savedIndices,
-                analyzeOne, saveOne, pickCandidate
+                ordersByIndex, loadingIndices, analyzedIndices, savedIndices, savedOrderInfo,
+                analyzeOne, saveOne, pickCandidate, togglePaid
             )
             btnAnalyze.isEnabled = texts.isNotEmpty() &&
                 (texts.indices).any { it !in analyzedIndices && it !in loadingIndices }
@@ -498,13 +760,28 @@ class ChatWebActivity : AppCompatActivity() {
                 val code = OrderRecord.makeCode(ord.zaloId, orderDate, total)
                 ioExecutor.execute {
                     val existing = runCatching {
-                        ShopDb(this).getOrderIdByCode(code)
-                    }.getOrDefault(-1L)
-                    if (existing > 0) {
+                        ShopDb(this).getOrderPaidByCode(code)
+                    }.getOrNull()
+                    if (existing != null) {
                         mainHandler.post {
-                            if (savedIndices.add(idx)) rerender()
+                            savedIndices.add(idx)
+                            savedOrderInfo[idx] = existing
+                            rerender()
                         }
                     }
+                }
+            }
+        }
+
+        togglePaid = { idx ->
+            val info = savedOrderInfo[idx]
+            if (info != null) {
+                val newPaid = !info.second
+                savedOrderInfo[idx] = info.first to newPaid
+                rerender()
+                ioExecutor.execute {
+                    runCatching { ShopDb(this).setOrderPaid(info.first, newPaid) }
+                    runCatching { OrderExtractor.onOrderSaved?.invoke() }
                 }
             }
         }
@@ -550,6 +827,10 @@ class ChatWebActivity : AppCompatActivity() {
                             try {
                                 res.onSuccess { (id, isNew) ->
                                     savedIndices.add(idx)
+                                    val paidNow = if (isNew) false else
+                                        runCatching { ShopDb(this).getOrderPaidByCode(record.orderCode)?.second }
+                                            .getOrNull() ?: false
+                                    savedOrderInfo[idx] = id to paidNow
                                     if (isNew) {
                                         showSuccessToast("Đã lưu đơn #$id (${record.orderCode})")
                                     } else {
@@ -773,9 +1054,11 @@ class ChatWebActivity : AppCompatActivity() {
         loadingIndices: Set<Int>,
         analyzedIndices: Set<Int>,
         savedIndices: Set<Int>,
+        savedOrderInfo: Map<Int, Pair<Long, Boolean>>,
         onAnalyzeOne: (Int) -> Unit,
         onSaveOne: (Int) -> Unit,
-        onPickCandidate: (Int, ZaloChat) -> Unit
+        onPickCandidate: (Int, ZaloChat) -> Unit,
+        onTogglePaid: (Int) -> Unit
     ) {
         container.removeAllViews()
         val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).apply {
@@ -851,8 +1134,8 @@ class ChatWebActivity : AppCompatActivity() {
                 isLoading -> rightCol.addView(buildLoadingCard(padH, padV, density))
                 isAnalyzed && order != null -> {
                     rightCol.addView(buildOrderCard(
-                        order, i, i in savedIndices,
-                        padH, padV, density, onAnalyzeOne, onSaveOne, onPickCandidate
+                        order, i, i in savedIndices, savedOrderInfo[i]?.second ?: false,
+                        padH, padV, density, onAnalyzeOne, onSaveOne, onPickCandidate, onTogglePaid
                     ))
                 }
                 isAnalyzed -> {
@@ -988,10 +1271,12 @@ class ChatWebActivity : AppCompatActivity() {
         ord: OrderExtractor.BatchOrder,
         index: Int,
         isSaved: Boolean,
+        isPaid: Boolean,
         padH: Int, padV: Int, density: Float,
         onAnalyzeOne: (Int) -> Unit,
         onSaveOne: (Int) -> Unit,
-        onPickCandidate: (Int, ZaloChat) -> Unit
+        onPickCandidate: (Int, ZaloChat) -> Unit,
+        onTogglePaid: (Int) -> Unit
     ): View {
         val frame = android.widget.FrameLayout(this)
         val frameLp = android.widget.LinearLayout.LayoutParams(
@@ -1291,6 +1576,11 @@ class ChatWebActivity : AppCompatActivity() {
         if (ord.matched) {
             if (isSaved) {
                 iconCol.addView(mkIcon(R.drawable.ic_database, 0xFF43A047.toInt(), enabled = false) {})
+                val paidIconRes = if (isPaid) R.drawable.ic_check_circle else R.drawable.ic_radio_off
+                val paidTint = if (isPaid)
+                    androidx.core.content.ContextCompat.getColor(this, android.R.color.holo_green_dark)
+                    else 0xFF90A4AE.toInt()
+                iconCol.addView(mkIcon(paidIconRes, paidTint) { onTogglePaid(index) })
             } else {
                 iconCol.addView(mkIcon(R.drawable.ic_save, 0xFF1E88E5.toInt()) { onSaveOne(index) })
             }
@@ -1325,10 +1615,13 @@ class ChatWebActivity : AppCompatActivity() {
     }
 
     private fun refreshCounter() {
-        ioExecutor.execute {
-            val today = orderDateFormat.format(java.util.Date())
-            val n = runCatching { shopDb.ordersCountToday(today) }.getOrDefault(0)
-            mainHandler.post { counter.text = "$n đơn" }
+        if (ioExecutor.isShutdown) return
+        runCatching {
+            ioExecutor.execute {
+                val today = orderDateFormat.format(java.util.Date())
+                val n = runCatching { shopDb.ordersCountToday(today) }.getOrDefault(0)
+                mainHandler.post { counter.text = "$n đơn" }
+            }
         }
     }
 
@@ -1399,6 +1692,8 @@ class ChatWebActivity : AppCompatActivity() {
         }
         checkoutDialog?.let { runCatching { it.dismiss() } }
         checkoutDialog = null
+        checkPaymentDialog?.let { runCatching { it.dismiss() } }
+        checkPaymentDialog = null
         ioExecutor.shutdown()
         runCatching { db.close() }
     }
@@ -1473,6 +1768,19 @@ class ChatWebActivity : AppCompatActivity() {
                 val cb = searchDone
                 searchDone = null
                 cb?.invoke(status, msg)
+            }
+        }
+
+        @JavascriptInterface
+        fun onPaymentCheck(
+            status: String, animId: String, peerName: String,
+            avatarUrl: String, messagesJson: String
+        ) {
+            Log.i(TAG, "PAYCHECK status=$status anim='$animId' peer='$peerName' msgs=${messagesJson.take(200)}")
+            mainHandler.post {
+                val cb = paymentCheckDone
+                paymentCheckDone = null
+                cb?.invoke(status, animId, peerName, avatarUrl, messagesJson)
             }
         }
 

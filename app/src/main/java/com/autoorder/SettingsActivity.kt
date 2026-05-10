@@ -1,5 +1,6 @@
 package com.autoorder
 
+import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
@@ -7,8 +8,10 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -19,6 +22,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var txtProductsCount: TextView
     private lateinit var txtBankSummary: TextView
     private lateinit var txtZaloChatsCount: TextView
+    private lateinit var txtAutoSync: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,7 +32,10 @@ class SettingsActivity : AppCompatActivity() {
         txtProductsCount = findViewById(R.id.txtProductsCount)
         txtBankSummary = findViewById(R.id.txtBankSummary)
         txtZaloChatsCount = findViewById(R.id.txtZaloChatsCount)
+        txtAutoSync = findViewById(R.id.txtAutoSync)
         refreshSummaries()
+
+        findViewById<View>(R.id.rowAutoSync).setOnClickListener { showAutoSyncDialog() }
 
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<View>(R.id.rowViewMode).setOnClickListener { showViewModeDialog() }
@@ -84,11 +91,61 @@ class SettingsActivity : AppCompatActivity() {
 
         val accounts = BankAccountsStore.list(this)
         val active = accounts.firstOrNull { it.active }
+        val autoEnabled = AppPrefs.isAutoSyncEnabled(this)
+        val autoMin = AppPrefs.getAutoSyncIntervalMin(this)
+        txtAutoSync.text = if (autoEnabled) "Bật · mỗi $autoMin phút" else "Tắt"
+
         txtBankSummary.text = when {
             accounts.isEmpty() -> "Chưa có — đang dùng tài khoản mặc định"
             active != null -> "${active.bankName} · ${active.accountNumber} (${accounts.size} TK)"
             else -> "${accounts.size} tài khoản"
         }
+    }
+
+    private fun showAutoSyncDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, 0)
+        }
+        val sw = Switch(this).apply {
+            text = "Bật tự động đồng bộ"
+            isChecked = AppPrefs.isAutoSyncEnabled(this@SettingsActivity)
+        }
+        val tvLabel = TextView(this).apply {
+            text = "Khoảng thời gian giữa mỗi lần (phút):"
+            textSize = 13f
+            setTextColor(0xFF455A64.toInt())
+            setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+        val etMin = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            hint = "VD: 5"
+            setText(AppPrefs.getAutoSyncIntervalMin(this@SettingsActivity).toString())
+            setSelection(text.length)
+        }
+        container.addView(sw)
+        container.addView(tvLabel)
+        container.addView(etMin)
+
+        AlertDialog.Builder(this)
+            .setTitle("Tự động đồng bộ")
+            .setView(container)
+            .setNegativeButton("Huỷ", null)
+            .setPositiveButton("Lưu") { _, _ ->
+                val min = etMin.text.toString().trim().toIntOrNull()?.coerceAtLeast(1)
+                    ?: AppPrefs.DEFAULT_AUTO_SYNC_INTERVAL_MIN
+                AppPrefs.setAutoSyncEnabled(this, sw.isChecked)
+                AppPrefs.setAutoSyncIntervalMin(this, min)
+                WebMonitorService.reschedule()
+                refreshSummaries()
+                Toast.makeText(
+                    this,
+                    if (sw.isChecked) "Đã bật · mỗi $min phút" else "Đã tắt tự động đồng bộ",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .show()
     }
 
     private fun showViewModeDialog() {
