@@ -230,13 +230,19 @@ class ChatWebActivity : AppCompatActivity() {
     }
 
     private var scanRecentDone: (() -> Unit)? = null
-    private var searchSyncDone: ((String, String) -> Unit)? = null
+    private var searchDone: ((String, String) -> Unit)? = null
 
-    fun triggerSearchAndSync(name: String, onDone: (String, String) -> Unit) {
-        searchSyncDone = onDone
-        val safe = org.json.JSONObject.quote(name)
+    /**
+     * Type [query] into Zalo's contact-search and click matching result, then close
+     * the search panel. [mode] = "phone" or "name". Does NOT call scanConvs — caller
+     * chains that. Result reported via [onDone] (status: OK/NO_RESULT/NO_INPUT, msg).
+     */
+    fun triggerSearch(query: String, mode: String, onDone: (String, String) -> Unit) {
+        searchDone = onDone
+        val safeQ = org.json.JSONObject.quote(query)
+        val safeMode = org.json.JSONObject.quote(mode)
         webView.evaluateJavascript(
-            "window.__autoOrderSearchAndSync && window.__autoOrderSearchAndSync($safe);", null
+            "window.__autoOrderSearch && window.__autoOrderSearch($safeQ, $safeMode);", null
         )
     }
 
@@ -425,6 +431,7 @@ class ChatWebActivity : AppCompatActivity() {
         lateinit var analyzeMany: (List<Int>) -> Unit
         lateinit var saveOne: (Int) -> Unit
         lateinit var pickCandidate: (Int, ZaloChat) -> Unit
+        lateinit var checkAlreadySaved: (Int) -> Unit
 
         pickCandidate = { idx, zc ->
             ordersByIndex[idx]?.let { ord ->
@@ -436,6 +443,7 @@ class ChatWebActivity : AppCompatActivity() {
                     candidates = emptyList()
                 )
                 rerender()
+                checkAlreadySaved(idx)
             }
         }
 
@@ -457,6 +465,30 @@ class ChatWebActivity : AppCompatActivity() {
         val isoDateFmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
         }
+
+        checkAlreadySaved = { idx ->
+            val ord = ordersByIndex[idx]
+            if (ord != null && ord.matched && ord.zaloId.isNotBlank() && ord.items.isNotEmpty()
+                && idx !in savedIndices) {
+                val tMs = timesMs.getOrNull(idx) ?: 0L
+                val orderDate = isoDateFmt.format(
+                    java.util.Date(if (tMs > 0) tMs else System.currentTimeMillis())
+                )
+                val total = ord.items.sumOf { it.lineTotal }
+                val code = OrderRecord.makeCode(ord.zaloId, orderDate, total)
+                ioExecutor.execute {
+                    val existing = runCatching {
+                        ShopDb(this).getOrderIdByCode(code)
+                    }.getOrDefault(-1L)
+                    if (existing > 0) {
+                        mainHandler.post {
+                            if (savedIndices.add(idx)) rerender()
+                        }
+                    }
+                }
+            }
+        }
+
         saveOne = { idx ->
             val ord = ordersByIndex[idx]
             val tMs = timesMs.getOrNull(idx) ?: 0L
@@ -553,6 +585,7 @@ class ChatWebActivity : AppCompatActivity() {
                         Toast.makeText(this, "Lỗi AI: ${e.message ?: "?"}", Toast.LENGTH_SHORT).show()
                     }
                     rerender()
+                    checkAlreadySaved(idx)
                 }
             }
         }
@@ -586,6 +619,9 @@ class ChatWebActivity : AppCompatActivity() {
                         }
                         tvStatus.text = "$currentChatName · $currentDate · ${texts.size} tin · AI $done/$totalChunks"
                         rerender()
+                        partial.forEach { ord ->
+                            if (ord.messageIndex in doneIndices) checkAlreadySaved(ord.messageIndex)
+                        }
                     }
                 ) { result ->
                     indices.forEach { loadingIndices.remove(it) }
@@ -599,6 +635,7 @@ class ChatWebActivity : AppCompatActivity() {
                         Toast.makeText(this, "Lỗi AI: ${e.message ?: "?"}", Toast.LENGTH_SHORT).show()
                     }
                     rerender()
+                    indices.forEach { checkAlreadySaved(it) }
                 }
             }
         }
@@ -1235,17 +1272,18 @@ class ChatWebActivity : AppCompatActivity() {
             }
         } else if (ord.customerName.isNotBlank()) {
             iconCol.addView(mkIcon(R.drawable.ic_scan, 0xFFEF6C00.toInt()) {
-                val q = ord.customerName.trim()
-                Toast.makeText(this, "Đang tìm \"$q\" trên Zalo...", Toast.LENGTH_SHORT).show()
-                triggerSearchAndSync(q) { status, msg ->
+                val name = ord.customerName.trim()
+                Toast.makeText(this, "Đang tìm \"$name\" trên Zalo...", Toast.LENGTH_SHORT).show()
+                triggerSearch(name, "name") { status, msg ->
                     when (status) {
                         "OK" -> {
-                            Toast.makeText(this, "Đã đồng bộ ($msg). Đang phân tích lại...", Toast.LENGTH_SHORT).show()
-                            mainHandler.postDelayed({ onAnalyzeOne(index) }, 400L)
+                            Toast.makeText(this, "Tìm xong ($msg). Đồng bộ & phân tích lại...", Toast.LENGTH_SHORT).show()
+                            triggerScanConvs()
+                            mainHandler.postDelayed({ onAnalyzeOne(index) }, 600L)
                         }
-                        "NO_RESULT" -> Toast.makeText(this, "Không tìm thấy \"$q\" trên Zalo", Toast.LENGTH_LONG).show()
-                        "NO_INPUT" -> Toast.makeText(this, "Không tìm thấy ô tìm kiếm Zalo", Toast.LENGTH_LONG).show()
-                        else -> Toast.makeText(this, "Đồng bộ lỗi: $status", Toast.LENGTH_LONG).show()
+                        "NO_RESULT" -> showErrorToast("Không tìm thấy \"$name\" trên Zalo")
+                        "NO_INPUT" -> showErrorToast("Không tìm thấy ô tìm kiếm Zalo")
+                        else -> showErrorToast("Đồng bộ lỗi: $status")
                     }
                 }
             })
@@ -1405,11 +1443,11 @@ class ChatWebActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
-        fun onSearchSyncDone(status: String, msg: String) {
-            Log.i(TAG, "SEARCH_SYNC status=$status msg=$msg")
+        fun onSearchDone(status: String, msg: String) {
+            Log.i(TAG, "SEARCH status=$status msg=$msg")
             mainHandler.post {
-                val cb = searchSyncDone
-                searchSyncDone = null
+                val cb = searchDone
+                searchDone = null
                 cb?.invoke(status, msg)
             }
         }

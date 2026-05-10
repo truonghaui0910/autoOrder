@@ -450,7 +450,12 @@ internal const val ZALO_OBSERVER_JS = """
     AutoOrderBridge.onDump('dump-end', '', '', '');
   };
 
-  window.__autoOrderSearchAndSync = function(name) {
+  // Search-only helper: type query into Zalo's contact-search, click the matching
+  // result, close the search panel. Does NOT scan convs — the caller chains that.
+  // mode === 'phone' → ưu tiên click phần tử thứ 2 trong mục "Tin nhắn"
+  //                   (.search-message__item), fallback về phần tử đầu nếu chỉ có 1.
+  // mode === 'name' (default) → click phần tử đầu [id^="friend-item-"].
+  window.__autoOrderSearch = function(query, mode) {
     function findInput() {
       return document.getElementById('contact-search-input');
     }
@@ -470,35 +475,45 @@ internal const val ZALO_OBSERVER_JS = """
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }
+    function pickResult() {
+      if (mode === 'phone') {
+        var msgs = document.querySelectorAll('#searchResultList .search-message__item');
+        if (msgs.length >= 2) return { el: msgs[1], id: 'msg#2' };
+        if (msgs.length >= 1) return { el: msgs[0], id: 'msg#1' };
+        return null;
+      }
+      var first = document.querySelector('#searchResultList [id^="friend-item-"]');
+      if (first) return { el: first, id: first.id };
+      return null;
+    }
     function done(status, msg) {
-      try { AutoOrderBridge.onSearchSyncDone(status, msg || ''); } catch (e) {}
+      try { AutoOrderBridge.onSearchDone(status, msg || ''); } catch (e) {}
     }
 
     var input = findInput();
     if (!input) { done('NO_INPUT', ''); return; }
 
     try { input.focus(); } catch (e) {}
-    setReactInputValue(input, name);
+    setReactInputValue(input, query);
 
     var attempts = 0;
     var maxAttempts = 30;
-    function pollResults() {
+    function poll() {
       attempts++;
-      var first = document.querySelector('#searchResultList [id^="friend-item-"]');
-      if (first) {
-        var firstId = first.id;
-        try { first.click(); } catch (e) {}
+      var pick = pickResult();
+      if (pick) {
+        var pickId = pick.id;
+        try { pick.el.click(); } catch (e) {}
         try {
-          var inner = first.querySelector('.conv-item-title__name') || first;
+          var inner = pick.el.querySelector('.conv-item-title__name')
+            || pick.el.querySelector('.search-message__item__content')
+            || pick.el;
           inner.click();
         } catch (e) {}
         setTimeout(function() {
           var closeBtn = findCloseBtn();
           if (closeBtn) { try { closeBtn.click(); } catch (e) {} }
-          setTimeout(function() {
-            try { if (window.__autoOrderScanConvs) window.__autoOrderScanConvs(); } catch (e) {}
-            done('OK', firstId);
-          }, 600);
+          setTimeout(function() { done('OK', pickId); }, 400);
         }, 700);
         return;
       }
@@ -508,9 +523,9 @@ internal const val ZALO_OBSERVER_JS = """
         done('NO_RESULT', '');
         return;
       }
-      setTimeout(pollResults, 200);
+      setTimeout(poll, 200);
     }
-    setTimeout(pollResults, 400);
+    setTimeout(poll, 400);
   };
 
   AutoOrderBridge.onDump('init', '', 'Observer installed', '');
