@@ -34,7 +34,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="Chọn hội thoại &amp; ngày để đọc 10 tin gần nhất"
+                android:text="Chọn hội thoại &amp; ngày để lọc đơn hàng"
                 android:textSize="12sp"
                 android:textColor="#E3F2FD" />
         </LinearLayout>
@@ -132,16 +132,30 @@
                 android:layout_marginTop="14dp"
                 android:weightSum="3">
 
-                <Button
-                    android:id="@+id/btnReadMessages"
+                <FrameLayout
                     android:layout_width="0dp"
                     android:layout_weight="1"
-                    android:layout_height="44dp"
-                    android:text="Đọc Tin Nhắn"
-                    android:textColor="#FFFFFF"
-                    android:textAllCaps="false"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_btn_primary" />
+                    android:layout_height="44dp">
+
+                    <Button
+                        android:id="@+id/btnReadMessages"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:text="Đọc Tin Nhắn"
+                        android:textColor="#FFFFFF"
+                        android:textAllCaps="false"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_btn_primary" />
+
+                    <ProgressBar
+                        android:id="@+id/pbReadMessages"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:layout_gravity="center"
+                        android:indeterminateTint="#FFFFFF"
+                        android:visibility="gone" />
+                </FrameLayout>
 
                 <Button
                     android:id="@+id/btnAnalyze"
@@ -155,17 +169,31 @@
                     android:textStyle="bold"
                     android:background="@drawable/bg_btn_outline" />
 
-                <Button
-                    android:id="@+id/btnSaveAll"
+                <FrameLayout
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="44dp"
-                    android:layout_marginStart="6dp"
-                    android:text="Lưu Đơn"
-                    android:textColor="#1E88E5"
-                    android:textAllCaps="false"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_btn_outline" />
+                    android:layout_marginStart="6dp">
+
+                    <Button
+                        android:id="@+id/btnSaveAll"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:text="Lưu Đơn"
+                        android:textColor="#1E88E5"
+                        android:textAllCaps="false"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_btn_outline" />
+
+                    <ProgressBar
+                        android:id="@+id/pbSaveAll"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:layout_gravity="center"
+                        android:indeterminateTint="#1E88E5"
+                        android:visibility="gone" />
+                </FrameLayout>
             </LinearLayout>
 
             <TextView

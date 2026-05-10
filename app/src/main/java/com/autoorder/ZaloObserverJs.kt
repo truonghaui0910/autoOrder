@@ -450,6 +450,69 @@ internal const val ZALO_OBSERVER_JS = """
     AutoOrderBridge.onDump('dump-end', '', '', '');
   };
 
+  window.__autoOrderSearchAndSync = function(name) {
+    function findInput() {
+      return document.getElementById('contact-search-input');
+    }
+    function findCloseBtn() {
+      var nodes = document.querySelectorAll('[data-translate-inner="STR_CLOSE"]');
+      for (var i = 0; i < nodes.length; i++) {
+        var btn = nodes[i].closest('.z--btn--v2');
+        if (btn) return btn;
+      }
+      return null;
+    }
+    function setReactInputValue(input, value) {
+      try {
+        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, value);
+      } catch (e) { input.value = value; }
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    function done(status, msg) {
+      try { AutoOrderBridge.onSearchSyncDone(status, msg || ''); } catch (e) {}
+    }
+
+    var input = findInput();
+    if (!input) { done('NO_INPUT', ''); return; }
+
+    try { input.focus(); } catch (e) {}
+    setReactInputValue(input, name);
+
+    var attempts = 0;
+    var maxAttempts = 30;
+    function pollResults() {
+      attempts++;
+      var first = document.querySelector('#searchResultList [id^="friend-item-"]');
+      if (first) {
+        var firstId = first.id;
+        try { first.click(); } catch (e) {}
+        try {
+          var inner = first.querySelector('.conv-item-title__name') || first;
+          inner.click();
+        } catch (e) {}
+        setTimeout(function() {
+          var closeBtn = findCloseBtn();
+          if (closeBtn) { try { closeBtn.click(); } catch (e) {} }
+          setTimeout(function() {
+            try { if (window.__autoOrderScanConvs) window.__autoOrderScanConvs(); } catch (e) {}
+            done('OK', firstId);
+          }, 600);
+        }, 700);
+        return;
+      }
+      if (attempts >= maxAttempts) {
+        var closeBtn = findCloseBtn();
+        if (closeBtn) { try { closeBtn.click(); } catch (e) {} }
+        done('NO_RESULT', '');
+        return;
+      }
+      setTimeout(pollResults, 200);
+    }
+    setTimeout(pollResults, 400);
+  };
+
   AutoOrderBridge.onDump('init', '', 'Observer installed', '');
 })();
 """

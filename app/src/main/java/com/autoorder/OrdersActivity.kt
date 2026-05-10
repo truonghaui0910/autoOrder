@@ -191,6 +191,7 @@ class OrdersActivity : AppCompatActivity() {
         tabs[1].setOnClickListener { setTab(Tab.PRODUCTS) }
         tabs[2].setOnClickListener { setTab(Tab.CUSTOMERS) }
 
+        findViewById<View>(R.id.btnNewOrder).setOnClickListener { showCustomerPicker() }
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnHome).setOnClickListener {
             startActivity(Intent(this, ChatWebActivity::class.java)
@@ -449,6 +450,90 @@ class OrdersActivity : AppCompatActivity() {
                 chart.setData("Số đơn theo khách hàng", bars)
             }
         }
+    }
+
+    private fun showCustomerPicker() {
+        val msgDb = MessagesDb(this)
+        val allChats = msgDb.listZaloChats().filter { !it.isGroup }
+        if (allChats.isEmpty()) {
+            Toast.makeText(this, "Chưa có chat 1-1 nào. Đồng bộ Zalo trước.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val dialog = Dialog(this, R.style.TransparentDialog)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+            setBackgroundResource(R.drawable.bg_dialog_card)
+        }
+
+        val title = TextView(this).apply {
+            text = "Chọn khách hàng"
+            textSize = 16f
+            setTextColor(0xFF212121.toInt())
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        container.addView(title)
+
+        val etSearch = android.widget.EditText(this).apply {
+            hint = "Tìm tên / SĐT / địa chỉ"
+            setSingleLine(true)
+            setBackgroundResource(R.drawable.bg_input_field)
+            val ph = (12 * density).toInt()
+            val pv = (10 * density).toInt()
+            setPadding(ph, pv, ph, pv)
+            textSize = 14f
+        }
+        val lpSearch = android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = (10 * density).toInt() }
+        container.addView(etSearch, lpSearch)
+
+        val list = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@OrdersActivity)
+        }
+        val adapter = ZaloChatsAdapter { chat ->
+            dialog.dismiss()
+            OrderExtractor.showManualOrder(this@OrdersActivity, chat)
+        }
+        list.adapter = adapter
+
+        val sorted = allChats.sortedByDescending { it.lastMsgAt }
+        adapter.submit(sorted)
+
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val q = s?.toString()?.trim()?.lowercase().orEmpty()
+                val filtered = if (q.isBlank()) sorted else sorted.filter {
+                    it.name.lowercase().contains(q) ||
+                        it.phone.lowercase().contains(q) ||
+                        it.address.lowercase().contains(q)
+                }
+                adapter.submit(filtered)
+            }
+        })
+
+        val listH = (resources.displayMetrics.heightPixels * 0.6).toInt()
+        val lpList = android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            listH
+        ).apply { topMargin = (10 * density).toInt() }
+        container.addView(list, lpList)
+
+        dialog.setContentView(container)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(0x00000000))
+            val w = (resources.displayMetrics.widthPixels * 0.94).toInt()
+            setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.show()
     }
 
     private fun showDetail(o: OrderRecord) {

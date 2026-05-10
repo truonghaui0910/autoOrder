@@ -135,11 +135,7 @@ class ChatWebActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnHome).setOnClickListener { /* đang ở WebView */ }
         findViewById<View>(R.id.btnCheckout).setOnClickListener {
             val d = checkoutDialog
-            if (d != null) {
-                if (!d.isShowing) d.show()
-            } else {
-                openCheckoutDialog()
-            }
+            if (d != null) d.show() else openCheckoutDialog()
         }
         findViewById<View>(R.id.btnDump).setOnClickListener {
             if (!OrderExtractor.restore()) triggerExtractSelected()
@@ -234,6 +230,15 @@ class ChatWebActivity : AppCompatActivity() {
     }
 
     private var scanRecentDone: (() -> Unit)? = null
+    private var searchSyncDone: ((String, String) -> Unit)? = null
+
+    fun triggerSearchAndSync(name: String, onDone: (String, String) -> Unit) {
+        searchSyncDone = onDone
+        val safe = org.json.JSONObject.quote(name)
+        webView.evaluateJavascript(
+            "window.__autoOrderSearchAndSync && window.__autoOrderSearchAndSync($safe);", null
+        )
+    }
 
     fun triggerScanConvsRecent(hours: Double, onDone: () -> Unit) {
         scanRecentDone = onDone
@@ -244,6 +249,50 @@ class ChatWebActivity : AppCompatActivity() {
 
     private var checkoutCallback: ((String, String, String) -> Unit)? = null
     private var checkoutDialog: android.app.Dialog? = null
+
+    private fun buildCopyIcon(
+        iconRes: Int, tint: Int, density: Float, label: String, value: String
+    ): View {
+        val size = (18 * density).toInt()
+        val pad = (2 * density).toInt()
+        val iv = android.widget.ImageView(this)
+        iv.setImageResource(iconRes)
+        iv.setColorFilter(tint)
+        iv.setPadding(pad, pad, pad, pad)
+        iv.isClickable = true
+        iv.isFocusable = true
+        iv.setOnClickListener {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText(label, value))
+            Toast.makeText(this, "Đã copy: $value", Toast.LENGTH_SHORT).show()
+        }
+        val lp = android.widget.LinearLayout.LayoutParams(size, size)
+        lp.marginStart = (4 * density).toInt()
+        iv.layoutParams = lp
+        return iv
+    }
+
+    private fun showStatusToast(message: String, success: Boolean) {
+        val tv = TextView(this)
+        tv.text = message
+        tv.setTextColor(if (success) 0xFF1B5E20.toInt() else 0xFFB71C1C.toInt())
+        tv.textSize = 13f
+        tv.setTypeface(tv.typeface, android.graphics.Typeface.BOLD)
+        tv.background = androidx.core.content.ContextCompat.getDrawable(
+            this,
+            if (success) R.drawable.bg_toast_success else R.drawable.bg_toast_error
+        )
+        val pad = (12 * resources.displayMetrics.density).toInt()
+        tv.setPadding(pad, pad - 2, pad, pad - 2)
+        val toast = Toast(this)
+        toast.duration = if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+        @Suppress("DEPRECATION")
+        toast.view = tv
+        toast.show()
+    }
+
+    private fun showErrorToast(message: String) = showStatusToast(message, success = false)
+    private fun showSuccessToast(message: String) = showStatusToast(message, success = true)
 
     private fun setBottomBarItemActive(itemId: Int, active: Boolean) {
         val item = findViewById<android.widget.LinearLayout>(itemId) ?: return
@@ -287,8 +336,10 @@ class ChatWebActivity : AppCompatActivity() {
         val spChat = view.findViewById<android.widget.Spinner>(R.id.spChat)
         val tvDate = view.findViewById<TextView>(R.id.tvDate)
         val btnRead = view.findViewById<android.widget.Button>(R.id.btnReadMessages)
+        val pbRead = view.findViewById<android.widget.ProgressBar>(R.id.pbReadMessages)
         val btnAnalyze = view.findViewById<android.widget.Button>(R.id.btnAnalyze)
         val btnSaveAll = view.findViewById<android.widget.Button>(R.id.btnSaveAll)
+        val pbSaveAll = view.findViewById<android.widget.ProgressBar>(R.id.pbSaveAll)
         val btnDismiss = view.findViewById<View>(R.id.btnDismiss)
         val btnMinimize = view.findViewById<View>(R.id.btnMinimize)
         btnAnalyze.isEnabled = false
@@ -329,11 +380,7 @@ class ChatWebActivity : AppCompatActivity() {
             setLayout(w, h)
         }
 
-        btnDismiss.setOnClickListener {
-            checkoutCallback = null
-            checkoutDialog = null
-            dialog.dismiss()
-        }
+        btnDismiss.setOnClickListener { dialog.dismiss() }
         btnMinimize.setOnClickListener { dialog.hide() }
         checkoutDialog = dialog
         setBottomBarItemActive(R.id.btnCheckout, true)
@@ -346,6 +393,20 @@ class ChatWebActivity : AppCompatActivity() {
         val savedIndices = mutableSetOf<Int>()
         var currentChatName = ""
         var currentDate = ""
+        var saveTotal = 0
+        var saveDone = 0
+        var saveFailed = 0
+
+        fun updateSaveButton() {
+            if (saveTotal > 0 && saveDone < saveTotal) {
+                btnSaveAll.text = ""
+                pbSaveAll.visibility = View.VISIBLE
+                btnSaveAll.isEnabled = false
+            } else {
+                btnSaveAll.text = "Lưu Đơn"
+                pbSaveAll.visibility = View.GONE
+            }
+        }
 
         fun updateStatus() {
             val totalOrders = ordersByIndex.size
@@ -386,9 +447,10 @@ class ChatWebActivity : AppCompatActivity() {
             )
             btnAnalyze.isEnabled = texts.isNotEmpty() &&
                 (texts.indices).any { it !in analyzedIndices && it !in loadingIndices }
-            btnSaveAll.isEnabled = ordersByIndex.values.any {
+            btnSaveAll.isEnabled = saveTotal == 0 && ordersByIndex.values.any {
                 it.matched && it.messageIndex !in savedIndices && it.items.isNotEmpty()
             }
+            updateSaveButton()
             updateStatus()
         }
 
@@ -400,14 +462,12 @@ class ChatWebActivity : AppCompatActivity() {
             val tMs = timesMs.getOrNull(idx) ?: 0L
             when {
                 ord == null -> Unit
-                !ord.matched -> Toast.makeText(
-                    this, "Đơn chưa khớp Zalo, không thể lưu", Toast.LENGTH_SHORT
-                ).show()
-                ord.items.isEmpty() -> Toast.makeText(
-                    this, "Đơn không có món", Toast.LENGTH_SHORT
-                ).show()
+                !ord.matched -> showErrorToast("Đơn chưa khớp Zalo, không thể lưu")
+                ord.items.isEmpty() -> showErrorToast("Đơn không có món")
                 idx in savedIndices -> Unit
                 else -> {
+                    saveTotal++
+                    updateSaveButton()
                     val orderDate = isoDateFmt.format(java.util.Date(if (tMs > 0) tMs else System.currentTimeMillis()))
                     val total = ord.items.sumOf { it.lineTotal }
                     val record = OrderRecord(
@@ -429,24 +489,41 @@ class ChatWebActivity : AppCompatActivity() {
                         orderCode = OrderRecord.makeCode(ord.zaloId, orderDate, total)
                     )
                     ioExecutor.execute {
-                        val res = runCatching { ShopDb(this).insertOrderWithDedup(record, ord.items) }
-                        runCatching {
-                            MessagesDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address)
+                        val res = runCatching {
+                            val r = ShopDb(this).insertOrderWithDedup(record, ord.items)
+                            runCatching { MessagesDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address) }
+                            r
                         }
                         mainHandler.post {
-                            res.onSuccess { (id, isNew) ->
-                                savedIndices.add(idx)
+                            try {
+                                res.onSuccess { (id, isNew) ->
+                                    savedIndices.add(idx)
+                                    if (isNew) {
+                                        showSuccessToast("Đã lưu đơn #$id (${record.orderCode})")
+                                    } else {
+                                        showErrorToast("Đơn đã tồn tại #$id (${record.orderCode})")
+                                    }
+                                    runCatching { OrderExtractor.onOrderSaved?.invoke() }
+                                }.onFailure { e ->
+                                    Log.e(TAG, "save fail idx=$idx", e)
+                                    saveFailed++
+                                    showErrorToast("Lỗi lưu đơn #$idx: ${e.message ?: "?"}")
+                                }
+                            } finally {
+                                saveDone++
+                                Log.d(TAG, "save progress $saveDone/$saveTotal (failed=$saveFailed)")
+                                if (saveDone >= saveTotal) {
+                                    val ok = saveDone - saveFailed
+                                    if (saveFailed > 0) {
+                                        showErrorToast("Đã lưu $ok/$saveDone đơn · $saveFailed lỗi")
+                                    } else if (saveDone > 1) {
+                                        showSuccessToast("Đã lưu xong $saveDone đơn")
+                                    }
+                                    saveTotal = 0
+                                    saveDone = 0
+                                    saveFailed = 0
+                                }
                                 rerender()
-                                Toast.makeText(
-                                    this,
-                                    if (isNew) "Đã lưu đơn #$id (${record.orderCode})"
-                                    else "Đơn đã tồn tại #$id (${record.orderCode})",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                runCatching { OrderExtractor.onOrderSaved?.invoke() }
-                            }.onFailure { e ->
-                                Log.e(TAG, "save fail idx=$idx", e)
-                                Toast.makeText(this, "Lỗi lưu: ${e.message ?: "?"}", Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -551,10 +628,14 @@ class ChatWebActivity : AppCompatActivity() {
             ordersByIndex.clear(); loadingIndices.clear(); analyzedIndices.clear()
             savedIndices.clear()
             btnRead.isEnabled = false
+            btnRead.text = ""
+            pbRead.visibility = View.VISIBLE
             btnAnalyze.isEnabled = false
 
             checkoutCallback = cb@{ animId, status, json ->
                 btnRead.isEnabled = true
+                btnRead.text = "Đọc Tin Nhắn"
+                pbRead.visibility = View.GONE
                 if (animId != zaloId) return@cb
                 when (status) {
                     "OK" -> {
@@ -611,10 +692,9 @@ class ChatWebActivity : AppCompatActivity() {
                 it.matched && it.messageIndex !in savedIndices && it.items.isNotEmpty()
             }.map { it.messageIndex }
             if (toSave.isEmpty()) {
-                Toast.makeText(this, "Không có đơn nào để lưu", Toast.LENGTH_SHORT).show()
+                showErrorToast("Không có đơn nào để lưu")
             } else {
                 toSave.forEach { saveOne(it) }
-                Toast.makeText(this, "Đang lưu ${toSave.size} đơn...", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -925,23 +1005,14 @@ class ChatWebActivity : AppCompatActivity() {
             title.layoutParams = titleLp
             titleRow.addView(title)
 
-            val copySize = (18 * density).toInt()
-            val copyPad = (2 * density).toInt()
-            val ivCopy = android.widget.ImageView(this)
-            ivCopy.setImageResource(R.drawable.ic_copy)
-            ivCopy.setColorFilter(0xFF90A4AE.toInt())
-            ivCopy.setPadding(copyPad, copyPad, copyPad, copyPad)
-            ivCopy.isClickable = true
-            ivCopy.isFocusable = true
-            ivCopy.setOnClickListener {
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("Tên Zalo", ord.customerName))
-                Toast.makeText(this, "Đã copy: ${ord.customerName}", Toast.LENGTH_SHORT).show()
+            titleRow.addView(buildCopyIcon(
+                R.drawable.ic_copy, 0xFF90A4AE.toInt(), density, "Tên Zalo", ord.customerName
+            ))
+            if (ord.phone.isNotBlank()) {
+                titleRow.addView(buildCopyIcon(
+                    R.drawable.ic_phone_android, 0xFF1E88E5.toInt(), density, "SĐT", ord.phone
+                ))
             }
-            val copyLp = android.widget.LinearLayout.LayoutParams(copySize, copySize)
-            copyLp.marginStart = (4 * density).toInt()
-            ivCopy.layoutParams = copyLp
-            titleRow.addView(ivCopy)
 
             nameCol.addView(titleRow)
 
@@ -973,23 +1044,14 @@ class ChatWebActivity : AppCompatActivity() {
             title.layoutParams = titleLp
             titleRow.addView(title)
 
-            val copySize = (18 * density).toInt()
-            val copyPad = (2 * density).toInt()
-            val ivCopy = android.widget.ImageView(this)
-            ivCopy.setImageResource(R.drawable.ic_copy)
-            ivCopy.setColorFilter(0xFF90A4AE.toInt())
-            ivCopy.setPadding(copyPad, copyPad, copyPad, copyPad)
-            ivCopy.isClickable = true
-            ivCopy.isFocusable = true
-            ivCopy.setOnClickListener {
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("Tên Zalo", ord.customerName))
-                Toast.makeText(this, "Đã copy: ${ord.customerName}", Toast.LENGTH_SHORT).show()
+            titleRow.addView(buildCopyIcon(
+                R.drawable.ic_copy, 0xFF90A4AE.toInt(), density, "Tên Zalo", ord.customerName
+            ))
+            if (ord.phone.isNotBlank()) {
+                titleRow.addView(buildCopyIcon(
+                    R.drawable.ic_phone_android, 0xFF1E88E5.toInt(), density, "SĐT", ord.phone
+                ))
             }
-            val copyLp = android.widget.LinearLayout.LayoutParams(copySize, copySize)
-            copyLp.marginStart = (4 * density).toInt()
-            ivCopy.layoutParams = copyLp
-            titleRow.addView(ivCopy)
 
             card.addView(titleRow)
         }
@@ -1171,6 +1233,22 @@ class ChatWebActivity : AppCompatActivity() {
             } else {
                 iconCol.addView(mkIcon(R.drawable.ic_save, 0xFF1E88E5.toInt()) { onSaveOne(index) })
             }
+        } else if (ord.customerName.isNotBlank()) {
+            iconCol.addView(mkIcon(R.drawable.ic_scan, 0xFFEF6C00.toInt()) {
+                val q = ord.customerName.trim()
+                Toast.makeText(this, "Đang tìm \"$q\" trên Zalo...", Toast.LENGTH_SHORT).show()
+                triggerSearchAndSync(q) { status, msg ->
+                    when (status) {
+                        "OK" -> {
+                            Toast.makeText(this, "Đã đồng bộ ($msg). Đang phân tích lại...", Toast.LENGTH_SHORT).show()
+                            mainHandler.postDelayed({ onAnalyzeOne(index) }, 400L)
+                        }
+                        "NO_RESULT" -> Toast.makeText(this, "Không tìm thấy \"$q\" trên Zalo", Toast.LENGTH_LONG).show()
+                        "NO_INPUT" -> Toast.makeText(this, "Không tìm thấy ô tìm kiếm Zalo", Toast.LENGTH_LONG).show()
+                        else -> Toast.makeText(this, "Đồng bộ lỗi: $status", Toast.LENGTH_LONG).show()
+                    }
+                }
+            })
         }
         frame.addView(iconCol)
         return frame
@@ -1251,8 +1329,14 @@ class ChatWebActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (liveInstance?.get() === this) liveInstance = null
-        OrderExtractor.onActiveChanged = null
+        val isLastInstance = liveInstance?.get() === this
+        if (isLastInstance) {
+            liveInstance = null
+            OrderExtractor.onActiveChanged = null
+            OrderExtractor.dismissActive()
+        }
+        checkoutDialog?.let { runCatching { it.dismiss() } }
+        checkoutDialog = null
         ioExecutor.shutdown()
         runCatching { db.close() }
     }
@@ -1317,6 +1401,16 @@ class ChatWebActivity : AppCompatActivity() {
                 val cb = scanRecentDone
                 scanRecentDone = null
                 cb?.invoke()
+            }
+        }
+
+        @JavascriptInterface
+        fun onSearchSyncDone(status: String, msg: String) {
+            Log.i(TAG, "SEARCH_SYNC status=$status msg=$msg")
+            mainHandler.post {
+                val cb = searchSyncDone
+                searchSyncDone = null
+                cb?.invoke(status, msg)
             }
         }
 

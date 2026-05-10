@@ -67,10 +67,19 @@ object OrderExtractor {
 
     fun restore(): Boolean {
         val d = activeDialog ?: return false
-        if (!d.isShowing) {
-            try { d.show() } catch (_: Exception) { return false }
+        return try {
+            d.show()
+            true
+        } catch (_: Exception) {
+            activeDialog = null
+            runCatching { onActiveChanged?.invoke(false) }
+            false
         }
-        return true
+    }
+
+    fun dismissActive() {
+        activeDialog?.let { runCatching { it.dismiss() } }
+        activeDialog = null
     }
 
     data class BatchOrder(
@@ -318,6 +327,11 @@ object OrderExtractor {
             )
         }
         return out
+    }
+
+    fun showManualOrder(ctx: Context, chat: ZaloChat) {
+        val order = ParsedOrder(senderName = chat.name)
+        showPopup(ctx, chat.zaloId, chat.name, chat.avatarUrl, order)
     }
 
     fun extractAndShow(ctx: Context, animId: String, peerName: String, avatarUrl: String, messagesJson: String) {
@@ -1245,10 +1259,10 @@ object OrderExtractor {
         name: String, itemsText: String, phone: String, addr: String, note: String = ""
     ): String = buildString {
         append("Tên: ").append(name).append("\n\n")
-        append(itemsText).append("\n\n")
         if (note.isNotBlank()) {
-            append("Ghi chú: ").append(note.trim()).append("\n")
+            append("Ghi chú: ").append(note.trim()).append("\n\n")
         }
+        append(itemsText).append("\n\n")
         append("SĐT: ").append(phone).append('\n')
         append("Địa chỉ: ").append(addr)
     }
