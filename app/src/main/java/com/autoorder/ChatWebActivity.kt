@@ -317,7 +317,8 @@ class ChatWebActivity : AppCompatActivity() {
         val dialog = android.app.Dialog(this, R.style.TransparentDialog)
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val density = resources.displayMetrics.density
-        val padH = (12 * density).toInt()
+        val isMobileLayout = resources.configuration.smallestScreenWidthDp < 600
+        val padH = ((if (isMobileLayout) 4 else 12) * density).toInt()
         val padV = (10 * density).toInt()
         val priceFmt = java.text.NumberFormat.getInstance(java.util.Locale("vi", "VN"))
 
@@ -370,6 +371,44 @@ class ChatWebActivity : AppCompatActivity() {
         })
         row.addView(info)
 
+        val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+        val displayName = peerName.ifBlank { senderName.ifBlank { phone } }
+
+        val iconSize = (28 * density).toInt()
+        val btnCopyName = android.widget.ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_myplaces)
+            setBackgroundResource(R.drawable.bg_btn_outline)
+            scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+            val pad = (4 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            layoutParams = android.widget.LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                marginStart = (6 * density).toInt()
+            }
+            setOnClickListener {
+                clipboard.setPrimaryClip(
+                    android.content.ClipData.newPlainText("name", displayName)
+                )
+                Toast.makeText(this@ChatWebActivity, "Đã copy tên", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val btnCopyPhone = android.widget.ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_call)
+            setBackgroundResource(R.drawable.bg_btn_outline)
+            scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+            val pad = (4 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            layoutParams = android.widget.LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                marginStart = (6 * density).toInt()
+            }
+            setOnClickListener {
+                clipboard.setPrimaryClip(
+                    android.content.ClipData.newPlainText("phone", phone)
+                )
+                Toast.makeText(this@ChatWebActivity, "Đã copy SĐT", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         val btnNo = android.widget.Button(this).apply {
             text = "Chưa"
             isAllCaps = false
@@ -418,6 +457,8 @@ class ChatWebActivity : AppCompatActivity() {
                 }
             }
         }
+        row.addView(btnCopyName)
+        row.addView(btnCopyPhone)
         row.addView(btnNo)
         row.addView(btnYes)
 
@@ -429,10 +470,13 @@ class ChatWebActivity : AppCompatActivity() {
             clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
             val attrs = attributes
-            attrs.gravity = android.view.Gravity.BOTTOM
-            attrs.y = (16 * density).toInt()
+            val isMobile = resources.configuration.smallestScreenWidthDp < 600
+            attrs.gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            attrs.x = 0
+            attrs.y = ((if (isMobile) 125 else 100) * density).toInt()
             attributes = attrs
-            val w = (resources.displayMetrics.widthPixels * 0.94).toInt()
+            val w = if (isMobile) ViewGroup.LayoutParams.MATCH_PARENT
+                    else (resources.displayMetrics.widthPixels * 0.35).toInt()
             setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         dialog.setOnDismissListener {

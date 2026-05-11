@@ -300,10 +300,15 @@
             android:textStyle="bold"
             android:background="@drawable/bg_btn_ghost" />
 
-        <View
+        <CheckBox
+            android:id="@+id/chkCopyWithPrices"
             android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="Hiện giá khi copy"
+            android:textSize="12sp"
+            android:textColor="#37474F" />
 
         <Button
             android:id="@+id/btnCopy"

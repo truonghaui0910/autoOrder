@@ -620,6 +620,7 @@ class OrdersActivity : AppCompatActivity() {
         val initialItems = db.queryOrderItems(o.id)
         val mutableItems: MutableList<OrderItem> = initialItems.toMutableList()
         val products = db.listProducts(activeOnly = true)
+        val productsById = products.associateBy { it.id }
 
         val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_order_detail, null, false)
         val dialog = Dialog(ctx, R.style.TransparentDialog)
@@ -741,8 +742,14 @@ class OrdersActivity : AppCompatActivity() {
                 totalAmount = total
             )
         }
+        val chkCopyWithPrices = view.findViewById<android.widget.CheckBox>(R.id.chkCopyWithPrices)
+        chkCopyWithPrices.isChecked = AppPrefs.isCopyWithPrices(ctx)
         fun refreshCopyContent() {
-            copyContent.text = orderToText(currentRecord(), mutableItems)
+            copyContent.text = orderToText(currentRecord(), mutableItems, chkCopyWithPrices.isChecked, productsById)
+        }
+        chkCopyWithPrices.setOnCheckedChangeListener { _, isChecked ->
+            AppPrefs.setCopyWithPrices(ctx, isChecked)
+            refreshCopyContent()
         }
         val qrHolder = arrayOfNulls<Bitmap>(1)
         var qrLoadedAmount = -1L
@@ -912,7 +919,7 @@ class OrdersActivity : AppCompatActivity() {
         view.findViewById<View>(R.id.btnDismiss).setOnClickListener { dialog.dismiss() }
         view.findViewById<Button>(R.id.btnCopy).setOnClickListener {
             val rec = currentRecord()
-            copyOrderToClipboard(this, rec, mutableItems)
+            copyOrderToClipboard(this, rec, mutableItems, chkCopyWithPrices.isChecked, productsById)
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
             Toast.makeText(this, "Đã copy đơn", Toast.LENGTH_SHORT).show()
         }
@@ -936,7 +943,7 @@ class OrdersActivity : AppCompatActivity() {
             )
             runCatching { db.updateOrder(o.id, updated, validItems) }
                 .onSuccess {
-                    copyOrderToClipboard(this, updated, validItems)
+                    copyOrderToClipboard(this, updated, validItems, chkCopyWithPrices.isChecked, productsById)
                     qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
                     Toast.makeText(this, "Đã lưu đơn #${o.id} & copy", Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
@@ -1067,7 +1074,12 @@ class OrdersActivity : AppCompatActivity() {
     }
 
     companion object {
-        fun orderToText(o: OrderRecord, items: List<OrderItem>): String {
+        fun orderToText(
+            o: OrderRecord,
+            items: List<OrderItem>,
+            withPrices: Boolean = true,
+            productsById: Map<Long, Product>? = null
+        ): String {
             val nf = NumberFormat.getInstance(Locale("vi", "VN"))
             return buildString {
                 append("Tên: ").append(o.senderName).append('\n')
@@ -1079,19 +1091,44 @@ class OrdersActivity : AppCompatActivity() {
                     else it.quantity.toString()
                     append(q).append(" x ").append(it.productName)
                     if (it.note.isNotBlank()) append(" (").append(it.note).append(")")
-                    if (it.unitPrice > 0) append(" — ").append(nf.format(it.lineTotal)).append("₫")
+                    if (withPrices && it.unitPrice > 0) append(" — ").append(nf.format(it.lineTotal)).append("₫")
                     append('\n')
                 }
-                if (o.totalAmount > 0) append("Tổng: ").append(nf.format(o.totalAmount)).append("₫\n")
+                if (o.totalAmount > 0) {
+                    append("Tổng: ").append(nf.format(o.totalAmount)).append("₫")
+                    if (productsById != null) {
+                        val byCat = LinkedHashMap<String, Double>()
+                        items.forEach { oi ->
+                            val cat = oi.productId?.let { productsById[it]?.category }
+                                ?.takeIf { c -> c.isNotBlank() } ?: "Khác"
+                            byCat[cat] = (byCat[cat] ?: 0.0) + oi.quantity
+                        }
+                        if (byCat.isNotEmpty()) {
+                            val parts = byCat.entries.joinToString(", ") { e ->
+                                val v = e.value
+                                val qStr = if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
+                                "${e.key}: $qStr"
+                            }
+                            append(" (").append(parts).append(")")
+                        }
+                    }
+                    append('\n')
+                }
                 append('\n')
                 append("SĐT: ").append(o.phone).append('\n')
                 append("Địa chỉ: ").append(o.address)
             }
         }
 
-        fun copyOrderToClipboard(ctx: Context, o: OrderRecord, items: List<OrderItem>) {
+        fun copyOrderToClipboard(
+            ctx: Context,
+            o: OrderRecord,
+            items: List<OrderItem>,
+            withPrices: Boolean = true,
+            productsById: Map<Long, Product>? = null
+        ) {
             val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("Đơn hàng", orderToText(o, items)))
+            cm.setPrimaryClip(ClipData.newPlainText("Đơn hàng", orderToText(o, items, withPrices, productsById)))
         }
     }
 }
