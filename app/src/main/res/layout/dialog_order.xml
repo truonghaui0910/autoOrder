@@ -275,12 +275,22 @@
                     app:tint="#212121" />
             </FrameLayout>
 
+            <CheckBox
+                android:id="@+id/chkCopyWithPrices"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginTop="8dp"
+                android:text="Hiện giá khi copy"
+                android:textSize="12sp"
+                android:textColor="#37474F" />
+
             <LinearLayout
                 android:id="@+id/copySection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="4dp"
                 android:padding="12dp"
                 android:background="#F5F9FF">
 
@@ -364,14 +374,10 @@
         android:paddingTop="8dp"
         android:paddingBottom="16dp">
 
-        <CheckBox
-            android:id="@+id/chkCopyWithPrices"
+        <View
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Hiện giá khi copy"
-            android:textSize="12sp"
-            android:textColor="#37474F" />
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
         <Button
             android:id="@+id/btnCopy"
