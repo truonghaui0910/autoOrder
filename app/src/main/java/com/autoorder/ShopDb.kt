@@ -522,6 +522,44 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         writableDatabase.update(T_ORD, cv, "id = ?", arrayOf(orderId.toString()))
     }
 
+    fun updateOrder(orderId: Long, order: OrderRecord, items: List<OrderItem>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val cv = ContentValues().apply {
+                put("order_date", order.orderDate)
+                put("conv_name", order.convName)
+                put("sender_name", order.senderName)
+                put("phone", order.phone)
+                put("address", order.address)
+                put("items_text", order.itemsText)
+                put("total_amount", order.totalAmount)
+                put("note", order.note)
+                put("paid", if (order.paid) 1 else 0)
+                put("zalo_id", order.zaloId)
+                if (order.orderCode.isNotBlank()) put("order_code", order.orderCode)
+            }
+            db.update(T_ORD, cv, "id = ?", arrayOf(orderId.toString()))
+            db.delete(T_OI, "order_id = ?", arrayOf(orderId.toString()))
+            items.forEach { oi ->
+                val ic = ContentValues().apply {
+                    put("order_id", orderId)
+                    if (oi.productId != null) put("product_id", oi.productId) else putNull("product_id")
+                    put("product_name", oi.productName)
+                    put("quantity", oi.quantity)
+                    put("unit_price", oi.unitPrice)
+                    put("line_total", oi.lineTotal)
+                    put("note", oi.note)
+                    put("raw_text", oi.rawText)
+                }
+                db.insert(T_OI, null, ic)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun deleteOrder(orderId: Long) {
         val db = writableDatabase
         db.beginTransaction()

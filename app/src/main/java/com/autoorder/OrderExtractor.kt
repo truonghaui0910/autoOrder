@@ -634,13 +634,13 @@ object OrderExtractor {
         return null
     }
 
-    private fun formatQty(q: Double): String =
+    internal fun formatQty(q: Double): String =
         if (q == q.toLong().toDouble()) q.toLong().toString() else q.toString()
 
-    private fun formatLineTotal(it: OrderItem): String =
+    internal fun formatLineTotal(it: OrderItem): String =
         if (it.unitPrice > 0) priceFormat.format(it.lineTotal) + "₫" else "(chưa map)"
 
-    private fun buildItemsText(
+    internal fun buildItemsText(
         items: List<OrderItem>,
         withPrices: Boolean = true,
         productsById: Map<Long, Product>? = null
@@ -659,30 +659,28 @@ object OrderExtractor {
                 }
             }
         }
-        if (withPrices) {
-            val total = items.sumOf { it.lineTotal }
-            if (total > 0) {
-                sb.append("\n\nTổng: ").append(priceFormat.format(total)).append("₫")
-                if (productsById != null) {
-                    val byCat = LinkedHashMap<String, Double>()
-                    items.forEach { oi ->
-                        val cat = oi.productId?.let { productsById[it]?.category }
-                            ?.takeIf { c -> c.isNotBlank() } ?: "Khác"
-                        byCat[cat] = (byCat[cat] ?: 0.0) + oi.quantity
+        val total = items.sumOf { it.lineTotal }
+        if (total > 0) {
+            sb.append("\n\nTổng: ").append(priceFormat.format(total)).append("₫")
+            if (productsById != null) {
+                val byCat = LinkedHashMap<String, Double>()
+                items.forEach { oi ->
+                    val cat = oi.productId?.let { productsById[it]?.category }
+                        ?.takeIf { c -> c.isNotBlank() } ?: "Khác"
+                    byCat[cat] = (byCat[cat] ?: 0.0) + oi.quantity
+                }
+                if (byCat.isNotEmpty()) {
+                    val parts = byCat.entries.joinToString(", ") {
+                        "${it.key}: ${formatQty(it.value)}"
                     }
-                    if (byCat.isNotEmpty()) {
-                        val parts = byCat.entries.joinToString(", ") {
-                            "${it.key}: ${formatQty(it.value)}"
-                        }
-                        sb.append(" (").append(parts).append(")")
-                    }
+                    sb.append(" (").append(parts).append(")")
                 }
             }
         }
         return sb.toString()
     }
 
-    private fun simpleWatch(after: (String) -> Unit) = object : android.text.TextWatcher {
+    internal fun simpleWatch(after: (String) -> Unit) = object : android.text.TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         override fun afterTextChanged(s: android.text.Editable?) {
@@ -718,6 +716,7 @@ object OrderExtractor {
         val btnAddItem = view.findViewById<Button>(R.id.btnAddItem)
         val qrImage = view.findViewById<ImageView>(R.id.qrImage)
         val qrStatus = view.findViewById<android.widget.TextView>(R.id.qrStatus)
+        val copyContent = view.findViewById<android.widget.TextView>(R.id.copyContent)
         view.findViewById<android.widget.TextView>(R.id.bankInfo).text = BankQr.infoText(ctx)
         val imgAvatar = view.findViewById<ImageView>(R.id.imgAvatar)
         if (avatarUrl.isNotBlank()) {
@@ -828,8 +827,30 @@ object OrderExtractor {
                 refreshAddr()
             }
         }
-        etPhone.addTextChangedListener(simpleWatch { refreshPhone() })
-        etAddr.addTextChangedListener(simpleWatch { refreshAddr() })
+        val chkCopyWithPrices = view.findViewById<android.widget.CheckBox>(R.id.chkCopyWithPrices)
+        fun refreshCopyContent() {
+            val name = etName.text.toString()
+            val phone = etPhone.text.toString()
+            val addr = etAddr.text.toString()
+            val note = etOrderNote.text.toString()
+            val withPrices = chkCopyWithPrices.isChecked
+            copyContent.text = buildOrderText(
+                name,
+                buildItemsText(order.items, withPrices, productsById),
+                phone, addr, note
+            )
+        }
+        val btnClearNote = view.findViewById<ImageView>(R.id.btnClearNote)
+        fun updateNoteClear() {
+            btnClearNote.visibility =
+                if (etOrderNote.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+        btnClearNote.setOnClickListener { etOrderNote.setText("") }
+        etName.addTextChangedListener(simpleWatch { refreshCopyContent() })
+        etPhone.addTextChangedListener(simpleWatch { refreshPhone(); refreshCopyContent() })
+        etAddr.addTextChangedListener(simpleWatch { refreshAddr(); refreshCopyContent() })
+        etOrderNote.addTextChangedListener(simpleWatch { refreshCopyContent(); updateNoteClear() })
+        updateNoteClear()
         refreshPhone()
         refreshAddr()
 
@@ -882,6 +903,7 @@ object OrderExtractor {
             txtTotalLabel.text = "Tổng (${formatQty(totalQty)} món)"
             itemsEmpty.visibility = if (order.items.isEmpty()) View.VISIBLE else View.GONE
             reloadQrDebounced()
+            refreshCopyContent()
         }
 
         lateinit var renderAll: () -> Unit
@@ -1144,10 +1166,10 @@ object OrderExtractor {
             dialog.hide()
         }
 
-        val chkCopyWithPrices = view.findViewById<android.widget.CheckBox>(R.id.chkCopyWithPrices)
         chkCopyWithPrices.isChecked = AppPrefs.isCopyWithPrices(ctx)
         chkCopyWithPrices.setOnCheckedChangeListener { _, isChecked ->
             AppPrefs.setCopyWithPrices(ctx, isChecked)
+            refreshCopyContent()
         }
 
         view.findViewById<Button>(R.id.btnCopy).setOnClickListener {
@@ -1235,7 +1257,7 @@ object OrderExtractor {
         dialog.show()
     }
 
-    private fun openProductPicker(
+    internal fun openProductPicker(
         ctx: Context, products: List<Product>, onPick: (Product) -> Unit
     ) {
         if (products.isEmpty()) {

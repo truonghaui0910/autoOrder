@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -244,13 +245,63 @@
                 style="@style/OrderFieldLabel"
                 android:text="Ghi chú đơn" />
 
-            <EditText
-                android:id="@+id/etOrderNote"
-                style="@style/OrderFieldInput"
-                android:inputType="textMultiLine|textCapSentences"
-                android:minLines="2"
-                android:gravity="top|start"
-                android:hint="Ghi chú chung cho cả đơn (giờ giao, lời nhắn...)" />
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <EditText
+                    android:id="@+id/etOrderNote"
+                    style="@style/OrderFieldInput"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:minLines="2"
+                    android:gravity="top|start"
+                    android:paddingEnd="28dp"
+                    android:hint="Ghi chú chung cho cả đơn (giờ giao, lời nhắn...)" />
+
+                <ImageView
+                    android:id="@+id/btnClearNote"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_close"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Xoá ghi chú"
+                    android:visibility="gone"
+                    app:tint="#212121" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:id="@+id/copySection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp"
+                android:padding="12dp"
+                android:background="#F5F9FF">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Nội dung copy"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#1E88E5" />
+
+                <TextView
+                    android:id="@+id/copyContent"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textSize="12sp"
+                    android:textColor="#212121"
+                    android:fontFamily="monospace"
+                    android:textIsSelectable="true" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/qrSection"
@@ -259,7 +310,8 @@
                 android:orientation="vertical"
                 android:layout_marginTop="12dp"
                 android:padding="12dp"
-                android:background="#F5F9FF">
+                android:background="#F5F9FF"
+                android:visibility="gone">
 
                 <TextView
                     android:layout_width="wrap_content"

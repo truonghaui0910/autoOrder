@@ -16,12 +16,16 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.view.LayoutInflater
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
+import coil.load
 import androidx.recyclerview.widget.RecyclerView
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -612,39 +616,278 @@ class OrdersActivity : AppCompatActivity() {
     }
 
     private fun showDetail(o: OrderRecord) {
-        val items = db.queryOrderItems(o.id)
-        val dialog = Dialog(this, R.style.TransparentDialog)
+        val ctx = this
+        val initialItems = db.queryOrderItems(o.id)
+        val mutableItems: MutableList<OrderItem> = initialItems.toMutableList()
+        val products = db.listProducts(activeOnly = true)
+
+        val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_order_detail, null, false)
+        val dialog = Dialog(ctx, R.style.TransparentDialog)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setContentView(R.layout.dialog_order_detail)
+        dialog.setContentView(view)
         dialog.window?.apply {
             setBackgroundDrawable(ColorDrawable(0x00000000))
             val w = (resources.displayMetrics.widthPixels * 0.94).toInt()
-            setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+            val h = (resources.displayMetrics.heightPixels * 0.88).toInt()
+            setLayout(w, h)
         }
 
-        dialog.findViewById<TextView>(R.id.title).text =
-            "Đơn #${o.id} — ${o.senderName.ifBlank { o.convName }}"
-        dialog.findViewById<TextView>(R.id.subtitle).text = titleDateFormat.format(Date(o.createdAt))
-        val contact = buildString {
-            if (o.phone.isNotBlank()) append("SĐT: ").append(o.phone).append('\n')
-            if (o.address.isNotBlank()) append("Địa chỉ: ").append(o.address)
-        }.trim()
-        dialog.findViewById<TextView>(R.id.contact).text = contact.ifBlank { "(không có thông tin liên hệ)" }
+        view.findViewById<TextView>(R.id.title).text = "Đơn #${o.id}"
+        view.findViewById<TextView>(R.id.subtitle).text = titleDateFormat.format(Date(o.createdAt))
 
-        val sb = StringBuilder()
-        items.forEach { it ->
-            val qty = if (it.quantity == it.quantity.toLong().toDouble())
-                it.quantity.toLong().toString()
-            else
-                it.quantity.toString()
-            sb.append(qty).append(" x ").append(it.productName)
-            if (it.note.isNotBlank()) sb.append(" (").append(it.note).append(")")
-            if (it.unitPrice <= 0) sb.append("  (chưa map sản phẩm)")
-            sb.append('\n')
+        val etName = view.findViewById<EditText>(R.id.etName)
+        val etAddr = view.findViewById<EditText>(R.id.etAddr)
+        val etPhone = view.findViewById<EditText>(R.id.etPhone)
+        val etOrderNote = view.findViewById<EditText>(R.id.etOrderNote)
+        val itemsContainer = view.findViewById<LinearLayout>(R.id.itemsContainer)
+        val itemsEmpty = view.findViewById<View>(R.id.itemsEmpty)
+        val txtTotalLabel = view.findViewById<TextView>(R.id.txtTotalLabel)
+        val totalView = view.findViewById<TextView>(R.id.total)
+        val btnAddItem = view.findViewById<Button>(R.id.btnAddItem)
+        val copyContent = view.findViewById<TextView>(R.id.copyContent)
+
+        etName.setText(o.senderName)
+        val imgAvatar = view.findViewById<ImageView>(R.id.imgAvatar)
+        val avatarUrl = if (o.zaloId.isNotBlank())
+            runCatching { MessagesDb(ctx).getZaloChatByZaloId(o.zaloId)?.avatarUrl.orEmpty() }
+                .getOrDefault("") else ""
+        if (avatarUrl.isNotBlank()) {
+            imgAvatar.load(avatarUrl) {
+                crossfade(true)
+                placeholder(R.drawable.bg_avatar_placeholder)
+                error(R.drawable.bg_avatar_placeholder)
+                transformations(coil.transform.CircleCropTransformation())
+            }
         }
-        dialog.findViewById<TextView>(R.id.itemsBlock).text = sb.toString().trimEnd()
+        etAddr.setText(o.address)
+        etPhone.setText(o.phone)
+        etOrderNote.setText(o.note)
 
-        val paidIcon = dialog.findViewById<ImageView>(R.id.paidIcon)
+        val zaloChat = if (o.zaloId.isNotBlank())
+            runCatching { MessagesDb(ctx).getZaloChatByZaloId(o.zaloId) }.getOrNull() else null
+        val savedPhones = mutableListOf<String>().apply { zaloChat?.phoneList()?.let { addAll(it) } }
+        val savedAddrs = mutableListOf<String>().apply { zaloChat?.addressList()?.let { addAll(it) } }
+        val phoneSavedScroll = view.findViewById<View>(R.id.phoneSavedScroll)
+        val phoneSavedRow = view.findViewById<LinearLayout>(R.id.phoneSavedRow)
+        val addrSavedScroll = view.findViewById<View>(R.id.addrSavedScroll)
+        val addrSavedRow = view.findViewById<LinearLayout>(R.id.addrSavedRow)
+        val density = resources.displayMetrics.density
+
+        fun makeChip(text: String, onClick: () -> Unit, isSave: Boolean = false): TextView {
+            val tv = TextView(ctx)
+            tv.text = text
+            tv.textSize = 12f
+            tv.setTextColor(if (isSave) 0xFF1E88E5.toInt() else 0xFF37474F.toInt())
+            val padH = (10 * density).toInt()
+            val padV = (5 * density).toInt()
+            tv.setPadding(padH, padV, padH, padV)
+            tv.setBackgroundResource(if (isSave) R.drawable.bg_chip_customer else R.drawable.bg_chip_normal)
+            tv.isClickable = true
+            tv.isFocusable = true
+            tv.setOnClickListener { onClick() }
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.marginEnd = (6 * density).toInt()
+            tv.layoutParams = lp
+            return tv
+        }
+
+        fun renderSavedRow(
+            row: LinearLayout, scroll: View, saved: List<String>, current: String,
+            target: EditText, onSaveNew: (String) -> Unit
+        ) {
+            row.removeAllViews()
+            val cur = current.trim()
+            saved.forEach { v -> row.addView(makeChip(v, { target.setText(v) })) }
+            val isNew = cur.isNotEmpty() && saved.none { it.equals(cur, ignoreCase = true) }
+            if (isNew) {
+                row.addView(makeChip("+ Lưu \"${cur.take(24)}${if (cur.length > 24) "…" else ""}\"",
+                    { onSaveNew(cur) }, isSave = true))
+            }
+            scroll.visibility = if (row.childCount > 0) View.VISIBLE else View.GONE
+        }
+
+        lateinit var refreshPhone: () -> Unit
+        lateinit var refreshAddr: () -> Unit
+        refreshPhone = {
+            renderSavedRow(phoneSavedRow, phoneSavedScroll, savedPhones,
+                etPhone.text.toString(), etPhone) { v ->
+                if (o.zaloId.isNotBlank() && MessagesDb(ctx).appendPhoneToZaloChat(o.zaloId, v)) {
+                    savedPhones.add(v)
+                    Toast.makeText(ctx, "Đã lưu SĐT", Toast.LENGTH_SHORT).show()
+                }
+                refreshPhone()
+            }
+        }
+        refreshAddr = {
+            renderSavedRow(addrSavedRow, addrSavedScroll, savedAddrs,
+                etAddr.text.toString(), etAddr) { v ->
+                if (o.zaloId.isNotBlank() && MessagesDb(ctx).appendAddressToZaloChat(o.zaloId, v)) {
+                    savedAddrs.add(v)
+                    Toast.makeText(ctx, "Đã lưu địa chỉ", Toast.LENGTH_SHORT).show()
+                }
+                refreshAddr()
+            }
+        }
+
+        fun currentRecord(): OrderRecord {
+            val total = mutableItems.sumOf { it.lineTotal }
+            return o.copy(
+                senderName = etName.text.toString().trim(),
+                address = etAddr.text.toString().trim(),
+                phone = etPhone.text.toString().trim(),
+                note = etOrderNote.text.toString().trim(),
+                totalAmount = total
+            )
+        }
+        fun refreshCopyContent() {
+            copyContent.text = orderToText(currentRecord(), mutableItems)
+        }
+        val qrHolder = arrayOfNulls<Bitmap>(1)
+        var qrLoadedAmount = -1L
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        val qrReload = Runnable {
+            val total = mutableItems.sumOf { it.lineTotal }
+            if (total <= 0) { qrHolder[0] = null; qrLoadedAmount = -1; return@Runnable }
+            if (total == qrLoadedAmount) return@Runnable
+            qrLoadedAmount = total
+            BankQr.loadAsync(BankQr.vietQrUrl(ctx, total, "MCZUOXQV2HS4LNP 504618370")) { bmp ->
+                if (qrLoadedAmount == total && bmp != null) qrHolder[0] = bmp
+            }
+        }
+        fun reloadQrDebounced() {
+            mainHandler.removeCallbacks(qrReload)
+            mainHandler.postDelayed(qrReload, 350L)
+        }
+        fun updateGrandTotal() {
+            val total = mutableItems.sumOf { it.lineTotal }
+            val totalQty = mutableItems.sumOf { it.quantity }
+            totalView.text = priceFormat.format(total) + "₫"
+            txtTotalLabel.text = "Tổng (${OrderExtractor.formatQty(totalQty)} món)"
+            itemsEmpty.visibility = if (mutableItems.isEmpty()) View.VISIBLE else View.GONE
+            refreshCopyContent()
+            reloadQrDebounced()
+        }
+
+        lateinit var renderAll: () -> Unit
+
+        fun bindRow(row: View, idx: Int) {
+            val tvProduct = row.findViewById<TextView>(R.id.tvProduct)
+            val etQty = row.findViewById<EditText>(R.id.etQty)
+            val etNote = row.findViewById<EditText>(R.id.etNote)
+            val tvLineTotal = row.findViewById<TextView>(R.id.tvLineTotal)
+            val btnMinus = row.findViewById<View>(R.id.btnMinus)
+            val btnPlus = row.findViewById<View>(R.id.btnPlus)
+            val btnDeleteRow = row.findViewById<View>(R.id.btnDelete)
+
+            val item = mutableItems[idx]
+            tvProduct.text = when {
+                item.productName.isBlank() -> "(chọn sản phẩm)"
+                item.productId == null -> "(off-menu) ${item.productName}"
+                else -> item.productName
+            }
+            etQty.setText(OrderExtractor.formatQty(item.quantity))
+            etNote.setText(item.note)
+            tvLineTotal.text = OrderExtractor.formatLineTotal(item)
+
+            val qtyWatcher = OrderExtractor.simpleWatch { s ->
+                val cur = mutableItems.getOrNull(idx) ?: return@simpleWatch
+                val newQty = s.replace(",", ".").toDoubleOrNull()
+                if (newQty != null && newQty > 0) {
+                    mutableItems[idx] = cur.copy(quantity = newQty)
+                    tvLineTotal.text = OrderExtractor.formatLineTotal(mutableItems[idx])
+                    updateGrandTotal()
+                }
+            }
+            val noteWatcher = OrderExtractor.simpleWatch { s ->
+                val cur = mutableItems.getOrNull(idx) ?: return@simpleWatch
+                mutableItems[idx] = cur.copy(note = s)
+                refreshCopyContent()
+            }
+            etQty.addTextChangedListener(qtyWatcher)
+            etNote.addTextChangedListener(noteWatcher)
+
+            fun bumpQty(delta: Double) {
+                val cur = mutableItems.getOrNull(idx) ?: return
+                val newQty = (cur.quantity + delta).coerceAtLeast(1.0)
+                mutableItems[idx] = cur.copy(quantity = newQty)
+                etQty.removeTextChangedListener(qtyWatcher)
+                etQty.setText(OrderExtractor.formatQty(newQty))
+                etQty.addTextChangedListener(qtyWatcher)
+                tvLineTotal.text = OrderExtractor.formatLineTotal(mutableItems[idx])
+                updateGrandTotal()
+            }
+            btnMinus.setOnClickListener { bumpQty(-1.0) }
+            btnPlus.setOnClickListener { bumpQty(+1.0) }
+
+            btnDeleteRow.setOnClickListener {
+                if (idx < mutableItems.size) {
+                    mutableItems.removeAt(idx)
+                    renderAll()
+                }
+            }
+
+            tvProduct.setOnClickListener {
+                OrderExtractor.openProductPicker(ctx, products) { picked ->
+                    val cur = mutableItems.getOrNull(idx) ?: return@openProductPicker
+                    mutableItems[idx] = cur.copy(
+                        productId = picked.id,
+                        productName = picked.name,
+                        unitPrice = picked.price
+                    )
+                    tvProduct.text = picked.name
+                    tvLineTotal.text = OrderExtractor.formatLineTotal(mutableItems[idx])
+                    updateGrandTotal()
+                }
+            }
+        }
+
+        renderAll = {
+            itemsContainer.removeAllViews()
+            mutableItems.forEachIndexed { idx, _ ->
+                val row = LayoutInflater.from(ctx).inflate(R.layout.item_order_row, itemsContainer, false)
+                itemsContainer.addView(row)
+                bindRow(row, idx)
+            }
+            updateGrandTotal()
+        }
+        renderAll()
+
+        btnAddItem.setOnClickListener {
+            mutableItems.add(OrderItem(
+                productId = null, productName = "", quantity = 1.0,
+                unitPrice = 0, note = "", rawText = ""
+            ))
+            renderAll()
+            val newIdx = mutableItems.size - 1
+            OrderExtractor.openProductPicker(ctx, products) { picked ->
+                val cur = mutableItems.getOrNull(newIdx) ?: return@openProductPicker
+                mutableItems[newIdx] = cur.copy(
+                    productId = picked.id, productName = picked.name, unitPrice = picked.price
+                )
+                renderAll()
+            }
+        }
+
+        etName.addTextChangedListener(OrderExtractor.simpleWatch { refreshCopyContent() })
+        etPhone.addTextChangedListener(OrderExtractor.simpleWatch { refreshPhone(); refreshCopyContent() })
+        etAddr.addTextChangedListener(OrderExtractor.simpleWatch { refreshAddr(); refreshCopyContent() })
+
+        val btnClearNote = view.findViewById<ImageView>(R.id.btnClearNote)
+        fun updateNoteClear() {
+            btnClearNote.visibility =
+                if (etOrderNote.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+        etOrderNote.addTextChangedListener(OrderExtractor.simpleWatch {
+            refreshCopyContent(); updateNoteClear()
+        })
+        updateNoteClear()
+        btnClearNote.setOnClickListener { etOrderNote.setText("") }
+        refreshPhone()
+        refreshAddr()
+
+        val paidIcon = view.findViewById<ImageView>(R.id.paidIcon)
         val paidState = booleanArrayOf(o.paid)
         fun renderPaid() {
             if (paidState[0]) {
@@ -665,36 +908,49 @@ class OrdersActivity : AppCompatActivity() {
                 Toast.LENGTH_SHORT).show()
             refresh()
         }
-        dialog.findViewById<TextView>(R.id.total).text = priceFormat.format(o.totalAmount) + "₫"
 
-        val bankInfo = dialog.findViewById<TextView>(R.id.bankInfo)
-        val qrImage = dialog.findViewById<ImageView>(R.id.qrImage)
-        val qrStatus = dialog.findViewById<TextView>(R.id.qrStatus)
-        bankInfo.text = BankQr.infoText(this)
-        val qrHolder = arrayOfNulls<Bitmap>(1)
-        if (o.totalAmount > 0) {
-            qrStatus.text = "Đang tạo QR..."
-            BankQr.loadAsync(BankQr.vietQrUrl(this, o.totalAmount.toLong(), "MCZUOXQV2HS4LNP 504618370")) { bmp ->
-                if (bmp != null) {
-                    qrImage.setImageBitmap(bmp)
-                    qrStatus.visibility = View.GONE
-                    qrHolder[0] = bmp
-                } else {
-                    qrStatus.text = "Không tải được QR"
-                }
-            }
-        } else {
-            qrStatus.text = "Đơn không có tổng tiền"
-        }
-
-        dialog.findViewById<View>(R.id.btnDismiss).setOnClickListener { dialog.dismiss() }
-        dialog.findViewById<Button>(R.id.btnClose).setOnClickListener { dialog.dismiss() }
-        dialog.findViewById<Button>(R.id.btnCopy).setOnClickListener {
-            copyOrderToClipboard(this, o, items)
+        view.findViewById<View>(R.id.btnDismiss).setOnClickListener { dialog.dismiss() }
+        view.findViewById<Button>(R.id.btnCopy).setOnClickListener {
+            val rec = currentRecord()
+            copyOrderToClipboard(this, rec, mutableItems)
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
             Toast.makeText(this, "Đã copy đơn", Toast.LENGTH_SHORT).show()
         }
-        dialog.findViewById<Button>(R.id.btnDelete).setOnClickListener {
+        view.findViewById<Button>(R.id.btnSave).setOnClickListener {
+            val validItems = mutableItems.filter { it.productName.isNotBlank() }
+            if (validItems.isEmpty()) {
+                Toast.makeText(this, "Đơn không có món nào để lưu", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val total = validItems.sumOf { it.lineTotal }
+            val itemsText = OrderExtractor.buildItemsText(validItems, withPrices = false)
+            val updated = o.copy(
+                senderName = etName.text.toString().trim(),
+                phone = etPhone.text.toString().trim(),
+                address = etAddr.text.toString().trim(),
+                note = etOrderNote.text.toString().trim(),
+                itemsText = itemsText,
+                totalAmount = total,
+                paid = paidState[0],
+                orderCode = OrderRecord.makeCode(o.zaloId, o.orderDate, total)
+            )
+            runCatching { db.updateOrder(o.id, updated, validItems) }
+                .onSuccess {
+                    copyOrderToClipboard(this, updated, validItems)
+                    qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
+                    Toast.makeText(this, "Đã lưu đơn #${o.id} & copy", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                    refresh()
+                }
+                .onFailure {
+                    AlertDialog.Builder(this)
+                        .setTitle("Lỗi lưu đơn")
+                        .setMessage(it.message ?: "Unknown")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+        }
+        view.findViewById<Button>(R.id.btnDeleteOrder).setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Xoá đơn")
                 .setMessage("Xoá đơn #${o.id}? Hành động không hoàn tác được.")
@@ -814,7 +1070,9 @@ class OrdersActivity : AppCompatActivity() {
         fun orderToText(o: OrderRecord, items: List<OrderItem>): String {
             val nf = NumberFormat.getInstance(Locale("vi", "VN"))
             return buildString {
-                append("Tên: ").append(o.senderName).append("\n\n")
+                append("Tên: ").append(o.senderName).append('\n')
+                if (o.note.isNotBlank()) append("Ghi chú: ").append(o.note.trim()).append('\n')
+                append('\n')
                 items.forEach { it ->
                     val q = if (it.quantity == it.quantity.toLong().toDouble())
                         it.quantity.toLong().toString()
@@ -826,7 +1084,6 @@ class OrdersActivity : AppCompatActivity() {
                 }
                 if (o.totalAmount > 0) append("Tổng: ").append(nf.format(o.totalAmount)).append("₫\n")
                 append('\n')
-                if (o.note.isNotBlank()) append("Ghi chú: ").append(o.note.trim()).append('\n')
                 append("SĐT: ").append(o.phone).append('\n')
                 append("Địa chỉ: ").append(o.address)
             }
