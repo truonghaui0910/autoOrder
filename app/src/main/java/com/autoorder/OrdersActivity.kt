@@ -923,6 +923,116 @@ class OrdersActivity : AppCompatActivity() {
             qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
             Toast.makeText(this, "Đã copy đơn", Toast.LENGTH_SHORT).show()
         }
+
+        view.findViewById<Button>(R.id.btnSendChat)?.setOnClickListener { btn ->
+            val rec = currentRecord()
+            val orderText = orderToText(rec, mutableItems, chkCopyWithPrices.isChecked, productsById)
+            copyOrderToClipboard(this, rec, mutableItems, chkCopyWithPrices.isChecked, productsById)
+            qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
+            btn.isEnabled = false
+            val originalText = (btn as? Button)?.text?.toString() ?: "Gửi khách"
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            val countdown = object : Runnable {
+                var remain = 5
+                override fun run() {
+                    if (remain > 0) {
+                        (btn as? Button)?.text = "Đợi ${remain}s"
+                        remain--
+                        handler.postDelayed(this, 1000L)
+                    } else {
+                        (btn as? Button)?.text = originalText
+                        btn.isEnabled = true
+                    }
+                }
+            }
+            handler.post(countdown)
+            val started = ChatWebActivity.requestSendChat(orderText) { status ->
+                when {
+                    status == "OK" -> Toast.makeText(this, "Đã gửi cho khách", Toast.LENGTH_SHORT).show()
+                    status == "NO_INPUT" -> Toast.makeText(this,
+                        "Không tìm thấy ô chat. Hãy mở 1 hội thoại trước.", Toast.LENGTH_LONG).show()
+                    status == "NO_BTN" -> Toast.makeText(this,
+                        "Không tìm thấy nút gửi của Zalo", Toast.LENGTH_LONG).show()
+                    else -> Toast.makeText(this, "Gửi lỗi: $status", Toast.LENGTH_LONG).show()
+                }
+            }
+            if (!started) {
+                handler.removeCallbacks(countdown)
+                (btn as? Button)?.text = originalText
+                btn.isEnabled = true
+                Toast.makeText(this, "Chat Web chưa mở, không thể gửi", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        view.findViewById<Button>(R.id.btnSendGroup)?.setOnClickListener { btn ->
+            val groupChat = runCatching { MessagesDb(this).getFirstOrderGroupChat() }.getOrNull()
+            if (groupChat == null || groupChat.name.isBlank()) {
+                Toast.makeText(this, "Chưa có nhóm nào loại 'order' đang active", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            val rec = currentRecord()
+            val orderText = orderToText(rec, mutableItems, chkCopyWithPrices.isChecked, productsById)
+            copyOrderToClipboard(this, rec, mutableItems, chkCopyWithPrices.isChecked, productsById)
+            qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
+            btn.isEnabled = false
+            val originalText = (btn as? Button)?.text?.toString() ?: "Gửi nhóm"
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            val countdown = object : Runnable {
+                var remain = 5
+                override fun run() {
+                    if (remain > 0) {
+                        (btn as? Button)?.text = "Đợi ${remain}s"
+                        remain--
+                        handler.postDelayed(this, 1000L)
+                    } else {
+                        (btn as? Button)?.text = originalText
+                        btn.isEnabled = true
+                    }
+                }
+            }
+            handler.post(countdown)
+
+            val searchStarted = ChatWebActivity.requestSearch(groupChat.name, "name") { sStatus, _ ->
+                if (sStatus != "OK") {
+                    handler.removeCallbacks(countdown)
+                    (btn as? Button)?.text = originalText
+                    btn.isEnabled = true
+                    val msg = when (sStatus) {
+                        "NO_INPUT" -> "Không tìm thấy ô tìm kiếm Zalo"
+                        "NO_RESULT" -> "Không tìm thấy nhóm '${groupChat.name}' trên Zalo"
+                        else -> "Tìm nhóm lỗi: $sStatus"
+                    }
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                    return@requestSearch
+                }
+                handler.postDelayed({
+                    val sendStarted = ChatWebActivity.requestSendChat(orderText) { status ->
+                        when {
+                            status == "OK" -> Toast.makeText(this,
+                                "Đã gửi vào nhóm ${groupChat.name}", Toast.LENGTH_SHORT).show()
+                            status == "NO_INPUT" -> Toast.makeText(this,
+                                "Không tìm thấy ô chat nhóm", Toast.LENGTH_LONG).show()
+                            status == "NO_BTN" -> Toast.makeText(this,
+                                "Không tìm thấy nút gửi của Zalo", Toast.LENGTH_LONG).show()
+                            else -> Toast.makeText(this,
+                                "Gửi nhóm lỗi: $status", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    if (!sendStarted) {
+                        handler.removeCallbacks(countdown)
+                        (btn as? Button)?.text = originalText
+                        btn.isEnabled = true
+                        Toast.makeText(this, "Chat Web chưa mở, không thể gửi", Toast.LENGTH_LONG).show()
+                    }
+                }, 600L)
+            }
+            if (!searchStarted) {
+                handler.removeCallbacks(countdown)
+                (btn as? Button)?.text = originalText
+                btn.isEnabled = true
+                Toast.makeText(this, "Chat Web chưa mở, không thể gửi", Toast.LENGTH_LONG).show()
+            }
+        }
         view.findViewById<Button>(R.id.btnSave).setOnClickListener {
             val validItems = mutableItems.filter { it.productName.isNotBlank() }
             if (validItems.isEmpty()) {

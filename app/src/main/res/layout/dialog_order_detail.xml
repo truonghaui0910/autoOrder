@@ -270,13 +270,63 @@
                 android:padding="12dp"
                 android:background="#F5F9FF">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Nội dung copy"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="#1E88E5" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Nội dung copy"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="#1E88E5" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="end">
+
+                        <Button
+                            android:id="@+id/btnSendChat"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Gửi khách"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#FFFFFF"
+                            android:textAllCaps="false"
+                            android:minHeight="0dp"
+                            android:minWidth="0dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:paddingTop="7dp"
+                            android:paddingBottom="7dp"
+                            android:background="@drawable/bg_btn_primary" />
+
+                        <Button
+                            android:id="@+id/btnSendGroup"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:text="Gửi nhóm"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#FFFFFF"
+                            android:textAllCaps="false"
+                            android:minHeight="0dp"
+                            android:minWidth="0dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:paddingTop="7dp"
+                            android:paddingBottom="7dp"
+                            android:background="@drawable/bg_btn_primary" />
+                    </LinearLayout>
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/copyContent"
