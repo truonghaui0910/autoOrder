@@ -29,6 +29,20 @@ internal const val ZALO_OBSERVER_JS = """
       : (node.className.baseVal || node.className.toString() || '');
   }
 
+  function extractContactCard(it) {
+    if (!it || !it.querySelector) return '';
+    var card = it.querySelector('.contact-message__container') ||
+               it.querySelector('.contact-card__container');
+    if (!card) return '';
+    var nameEl = card.querySelector('.contact-card__name-wrapper');
+    var descEl = card.querySelector('.contact-card__description-wrapper');
+    var nm = nameEl ? (nameEl.innerText || '').trim() : '';
+    var ph = descEl ? (descEl.innerText || '').trim() : '';
+    if (!nm && !ph) return '';
+    if (nm && ph) return '[Liên hệ: ' + nm + '] ' + ph;
+    return '[Liên hệ] ' + (nm || ph);
+  }
+
   function classifyConv(item) {
     var dataId = item.getAttribute('data-id') || '';
     if (dataId === 'div_TabMsg_ThrdChFileXFER') return 'self-file';
@@ -134,7 +148,9 @@ internal const val ZALO_OBSERVER_JS = """
                    it.querySelector('.text-message__container');
       var text = textEl ? (textEl.innerText || '').trim() : '';
       if (!text) {
-        if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
+        var card = extractContactCard(it);
+        if (card) text = card;
+        else if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
           text = '[hình ảnh]';
         }
       }
@@ -282,7 +298,9 @@ internal const val ZALO_OBSERVER_JS = """
                      it.querySelector('.text-message__container');
         var text = textEl ? (textEl.innerText || '').trim() : '';
         if (!text) {
-          if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
+          var card = extractContactCard(it);
+          if (card) text = card;
+          else if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
             text = '[hình ảnh]';
           }
         }
@@ -733,6 +751,10 @@ internal const val ZALO_OBSERVER_JS = """
       for (var k = 0; k < imgs.length; k++) {
         var src = imgs[k].src || imgs[k].getAttribute('data-src') || '';
         if (src) images.push(src);
+      }
+      if (!text) {
+        var card = extractContactCard(it);
+        if (card) text = card;
       }
       if (!text && images.length === 0) {
         if (it.querySelector('.sticker-message')) text = '[sticker]';
