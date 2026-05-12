@@ -193,6 +193,48 @@ class MessagesDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAM
         return out
     }
 
+    /**
+     * Tìm ZaloChat active theo số điện thoại (bidirectional digits-only contains).
+     * Dùng làm fallback khi match theo tên không ra kết quả.
+     */
+    fun getZaloChatsByPhone(phone: String): List<ZaloChat> {
+        val pn = phone.replace(Regex("\\D"), "")
+        if (pn.isBlank()) return emptyList()
+        val out = ArrayList<ZaloChat>()
+        readableDatabase.rawQuery(
+            "SELECT id, zalo_id, name, avatar_url, is_group, chat_type, address, phone, created_at, status, last_msg_at, last_msg_text " +
+                "FROM $T_CHATS WHERE status = 'active' AND phone IS NOT NULL AND phone <> '' " +
+                "ORDER BY last_msg_at DESC, id DESC",
+            null
+        ).use { c ->
+            while (c.moveToNext()) {
+                val rawPhones = c.getString(7) ?: ""
+                val hit = ZaloChat.splitMulti(rawPhones)
+                    .map { it.replace(Regex("\\D"), "") }
+                    .filter { it.isNotBlank() }
+                    .any { p -> p.contains(pn) || pn.contains(p) }
+                if (!hit) continue
+                out.add(
+                    ZaloChat(
+                        id = c.getLong(0),
+                        zaloId = c.getString(1) ?: "",
+                        name = c.getString(2) ?: "",
+                        avatarUrl = c.getString(3) ?: "",
+                        isGroup = c.getInt(4) == 1,
+                        chatType = c.getString(5) ?: "normal",
+                        address = c.getString(6) ?: "",
+                        phone = rawPhones,
+                        createdAt = c.getLong(8),
+                        status = c.getString(9) ?: "active",
+                        lastMsgAt = c.getLong(10),
+                        lastMsgText = c.getString(11) ?: ""
+                    )
+                )
+            }
+        }
+        return out
+    }
+
     fun getZaloChatByZaloId(zaloId: String): ZaloChat? {
         if (zaloId.isBlank()) return null
         readableDatabase.rawQuery(

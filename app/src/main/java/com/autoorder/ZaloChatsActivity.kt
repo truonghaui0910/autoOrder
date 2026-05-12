@@ -38,6 +38,14 @@ class ZaloChatsActivity : AppCompatActivity() {
         private val TYPE_FILTER_LABELS = listOf("Tất cả loại", "normal", "customer", "order")
         private val TYPE_FILTER_VALUES = listOf("", "normal", "customer", "order")
         private val KIND_FILTER_LABELS = listOf("Tất cả", "Cá nhân", "Group")
+
+        private fun foldText(s: String): String {
+            if (s.isEmpty()) return ""
+            return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+                .replace('đ', 'd').replace('Đ', 'd')
+                .lowercase()
+        }
     }
 
     private lateinit var adapter: ZaloChatsAdapter
@@ -112,12 +120,21 @@ class ZaloChatsActivity : AppCompatActivity() {
     }
 
     private fun applyFilters() {
-        val q = etSearch.text.toString().trim().lowercase()
+        val rawQ = etSearch.text.toString().trim()
+        val q = foldText(rawQ)
+        val qDigits = rawQ.replace(Regex("\\D"), "")
         val typeIdx = spChatType.selectedItemPosition.coerceAtLeast(0)
         val typeVal = TYPE_FILTER_VALUES.getOrNull(typeIdx).orEmpty()
         val kindIdx = spKind.selectedItemPosition.coerceAtLeast(0)
         val filtered = allRows.filter {
-            (q.isBlank() || it.name.lowercase().contains(q) || it.zaloId.lowercase().contains(q)) &&
+            val textMatch = q.isBlank() ||
+                foldText(it.name).contains(q) ||
+                it.zaloId.lowercase().contains(q) ||
+                it.addressList().any { a -> foldText(a).contains(q) } ||
+                (qDigits.isNotEmpty() && it.phoneList().any { p ->
+                    p.replace(Regex("\\D"), "").contains(qDigits)
+                })
+            textMatch &&
                 (typeVal.isBlank() || it.chatType == typeVal) &&
                 (kindIdx == 0 || (kindIdx == 1 && !it.isGroup) || (kindIdx == 2 && it.isGroup))
         }

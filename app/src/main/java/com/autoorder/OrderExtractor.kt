@@ -152,7 +152,9 @@ object OrderExtractor {
                     chunkIdx++
                     val raw = callClaudeBatch(chunk.toString(), products, productsById)
                     val withZalo = raw.map { o ->
-                        val matches = msgDb.getZaloChatsByName(o.customerName)
+                        val byName = msgDb.getZaloChatsByName(o.customerName)
+                        val matches = if (byName.isEmpty() && o.phone.isNotBlank())
+                            msgDb.getZaloChatsByPhone(o.phone) else byName
                         val picked = pickByPhone(matches, o.phone)
                         when {
                             picked.size == 1 -> o.copy(
