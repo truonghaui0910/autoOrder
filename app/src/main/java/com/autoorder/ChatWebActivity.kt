@@ -45,6 +45,118 @@ class ChatWebActivity : AppCompatActivity() {
             return true
         }
 
+        fun requestSendChat(text: String, onResult: (String) -> Unit): Boolean {
+            val act = liveInstance?.get() ?: return false
+            act.runOnUiThread { act.triggerSendChat(text, onResult) }
+            return true
+        }
+
+        fun requestSearch(query: String, mode: String, onDone: (String, String) -> Unit): Boolean {
+            val act = liveInstance?.get() ?: return false
+            act.runOnUiThread { act.triggerSearch(query, mode, onDone) }
+            return true
+        }
+
+        private const val SEND_CHAT_JS = """
+(function(){
+  try {
+    var text = '__TEXT__';
+    var rich = document.getElementById('richInput');
+    if (!rich) {
+      var nodes = document.querySelectorAll('div[contenteditable="true"], [contenteditable=""], .rich-input');
+      for (var j=nodes.length-1; j>=0; j--) {
+        var r = nodes[j].getBoundingClientRect();
+        if (r.width > 50 && r.height > 10) { rich = nodes[j]; break; }
+      }
+    }
+    if (!rich) return 'NO_INPUT';
+    try { rich.setAttribute('contenteditable', 'true'); } catch(e) {}
+    rich.focus();
+
+    try {
+      var sel = window.getSelection();
+      var range = document.createRange();
+      range.selectNodeContents(rich);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      document.execCommand('delete', false, null);
+    } catch(e) {}
+
+    var dt = new DataTransfer();
+    try { dt.setData('text/plain', text); } catch(e) {}
+    var pasted = false;
+    try {
+      var ev = new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData: dt });
+      try { Object.defineProperty(ev, 'clipboardData', { value: dt, configurable: true }); } catch(_){}
+      rich.dispatchEvent(ev);
+      pasted = true;
+    } catch(e) {}
+
+    if (!pasted || (rich.innerText || '').trim().length === 0) {
+      try {
+        var lines = text.split('\n');
+        rich.innerHTML = '';
+        for (var i=0; i<lines.length; i++) {
+          var div = document.createElement('div');
+          if (lines[i].length === 0) div.appendChild(document.createElement('br'));
+          else div.appendChild(document.createTextNode(lines[i]));
+          rich.appendChild(div);
+        }
+      } catch(e) {}
+    }
+    try { rich.classList.remove('empty'); } catch(e) {}
+
+    try {
+      var sel2 = window.getSelection();
+      var r2 = document.createRange();
+      r2.selectNodeContents(rich);
+      r2.collapse(false);
+      sel2.removeAllRanges();
+      sel2.addRange(r2);
+    } catch(e) {}
+
+    try { rich.dispatchEvent(new Event('input', { bubbles:true })); } catch(e) {}
+    try { rich.dispatchEvent(new Event('change', { bubbles:true })); } catch(e) {}
+    try { rich.dispatchEvent(new KeyboardEvent('keyup', { bubbles:true, key:'a' })); } catch(e) {}
+
+    function dismissContactPreview() {
+      try {
+        var closers = document.querySelectorAll('.preview-contact-wrapper .close__preview, .preview-contact .close__preview');
+        for (var i=0; i<closers.length; i++) {
+          try { closers[i].click(); } catch(_) {}
+        }
+      } catch(_) {}
+      try {
+        var wraps = document.querySelectorAll('.preview-contact-wrapper');
+        for (var k=0; k<wraps.length; k++) {
+          try { wraps[k].parentNode && wraps[k].parentNode.removeChild(wraps[k]); } catch(_) {}
+        }
+      } catch(_) {}
+    }
+
+    setTimeout(function(){
+      dismissContactPreview();
+      setTimeout(function(){
+        var btn = document.querySelector('.send-msg-btn');
+        if (!btn) {
+          try { AutoOrderBridge.onSendChatResult('NO_BTN'); } catch(e) {}
+          return;
+        }
+        try {
+          btn.click();
+          AutoOrderBridge.onSendChatResult('OK');
+        } catch (e) {
+          try { AutoOrderBridge.onSendChatResult('ERR_' + (e && e.message ? e.message : e)); } catch(_) {}
+        }
+      }, 150);
+    }, 300);
+    return 'PENDING';
+  } catch (e) {
+    return 'ERR_' + (e && e.message ? e.message : e);
+  }
+})();
+"""
+
         private const val PASTE_QR_JS = """
 (function(){
   try {
@@ -516,6 +628,25 @@ class ChatWebActivity : AppCompatActivity() {
     private var scanRecentDone: (() -> Unit)? = null
     private var searchDone: ((String, String) -> Unit)? = null
     private var paymentCheckDone: ((String, String, String, String, String) -> Unit)? = null
+    private var sendChatDone: ((String) -> Unit)? = null
+
+    private fun triggerSendChat(text: String, onResult: (String) -> Unit) {
+        sendChatDone = onResult
+        val escaped = text
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "")
+        val js = SEND_CHAT_JS.replace("__TEXT__", escaped)
+        webView.evaluateJavascript(js) { result ->
+            val r = (result ?: "").trim('"')
+            if (r.startsWith("ERR_") || r == "NO_INPUT") {
+                val cb = sendChatDone
+                sendChatDone = null
+                cb?.invoke(r)
+            }
+        }
+    }
 
     fun triggerFetchPaymentCheck(onDone: (String, String, String, String, String) -> Unit) {
         paymentCheckDone = onDone
@@ -1825,6 +1956,16 @@ class ChatWebActivity : AppCompatActivity() {
                 val cb = paymentCheckDone
                 paymentCheckDone = null
                 cb?.invoke(status, animId, peerName, avatarUrl, messagesJson)
+            }
+        }
+
+        @JavascriptInterface
+        fun onSendChatResult(status: String) {
+            Log.i(TAG, "SendChat result=$status")
+            mainHandler.post {
+                val cb = sendChatDone
+                sendChatDone = null
+                cb?.invoke(status)
             }
         }
 

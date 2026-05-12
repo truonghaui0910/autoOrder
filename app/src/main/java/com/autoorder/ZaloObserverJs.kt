@@ -500,8 +500,21 @@ internal const val ZALO_OBSERVER_JS = """
         if (msgs.length >= 1) return { el: msgs[0], id: 'msg#1' };
         return null;
       }
-      var first = document.querySelector('#searchResultList [id^="friend-item-"]');
-      if (first) return { el: first, id: first.id };
+      var list = document.getElementById('searchResultList');
+      if (!list) return null;
+      var f = list.querySelector('[id^="friend-item-"]');
+      if (f) return { el: f, id: f.id };
+      var g = list.querySelector('[id^="group-item-"]');
+      if (g) return { el: g, id: g.id };
+      var others = list.querySelectorAll(
+        '.search-friend__item, .search-group__item, .search-conv__item, .conv-rel, .msg-item'
+      );
+      for (var i = 0; i < others.length; i++) {
+        var r = others[i].getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) return { el: others[i], id: others[i].id || ('other#' + i) };
+      }
+      var msgs2 = list.querySelectorAll('.search-message__item');
+      if (msgs2.length) return { el: msgs2[0], id: 'msg#1' };
       return null;
     }
     function done(status, msg) {

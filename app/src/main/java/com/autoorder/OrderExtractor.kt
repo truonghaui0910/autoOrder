@@ -1042,7 +1042,9 @@ object OrderExtractor {
         val rootView = view as android.view.ViewGroup
         val originalRootBg = rootView.background
         val originalHeaderBg = rootView.getChildAt(0).background
-        val keepVisibleIds = setOf(R.id.etName, R.id.etAddr, R.id.etPhone, R.id.etOrderNote, R.id.totalRow, R.id.itemsContainer)
+        val copySection = view.findViewById<View>(R.id.copySection)
+        val originalCopySectionBg = copySection?.background
+        val keepVisibleIds = setOf(R.id.etName, R.id.etAddr, R.id.etPhone, R.id.etOrderNote, R.id.totalRow, R.id.itemsContainer, R.id.copySection)
         val textBgColor = 0xE6FFFFFF.toInt()
         fun bg(resId: Int) = androidx.core.content.ContextCompat.getDrawable(ctx, resId)
         fun applyTextBgSpan(tv: android.widget.TextView, on: Boolean) {
@@ -1103,9 +1105,13 @@ object OrderExtractor {
                                         val row = rows.getChildAt(k) as? android.view.ViewGroup ?: continue
                                         row.background = if (on) null else bg(R.drawable.bg_input_field)
                                         row.findViewById<View>(R.id.btnDelete).alpha = if (on) 0f else 1f
-                                        row.findViewById<View>(R.id.btnMinus).alpha = if (on) 0f else 1f
-                                        row.findViewById<View>(R.id.btnPlus).alpha = if (on) 0f else 1f
-                                        row.findViewById<View>(R.id.etNote).alpha = if (on) 0f else 1f
+                                        row.findViewById<View>(R.id.btnMinus).alpha = 1f
+                                        row.findViewById<View>(R.id.btnPlus).alpha = 1f
+                                        val etNote = row.findViewById<android.widget.EditText>(R.id.etNote)
+                                        etNote.alpha = 1f
+                                        etNote.background = if (on) null else bg(R.drawable.bg_input_field)
+                                        ensureBgSpanWatcher(etNote)
+                                        applyTextBgSpan(etNote, on)
                                         val tvProduct = row.findViewById<android.widget.TextView>(R.id.tvProduct)
                                         val tvLineTotal = row.findViewById<android.widget.TextView>(R.id.tvLineTotal)
                                         val etQty = row.findViewById<android.widget.EditText>(R.id.etQty)
@@ -1133,6 +1139,17 @@ object OrderExtractor {
                                     for (m in 0 until c.childCount) {
                                         val tv = c.getChildAt(m)
                                         tv.background = null
+                                        if (tv is android.widget.TextView) {
+                                            ensureBgSpanWatcher(tv)
+                                            applyTextBgSpan(tv, on)
+                                        }
+                                    }
+                                }
+                                c.id == R.id.copySection && c is android.view.ViewGroup -> {
+                                    c.alpha = 1f
+                                    c.background = if (on) null else originalCopySectionBg
+                                    for (m in 0 until c.childCount) {
+                                        val tv = c.getChildAt(m)
                                         if (tv is android.widget.TextView) {
                                             ensureBgSpanWatcher(tv)
                                             applyTextBgSpan(tv, on)
@@ -1185,6 +1202,140 @@ object OrderExtractor {
             android.widget.Toast.makeText(
                 ctx, "Đã copy đơn", android.widget.Toast.LENGTH_SHORT
             ).show()
+        }
+
+        view.findViewById<Button>(R.id.btnSendChat)?.setOnClickListener { btn ->
+            captureContact()
+            val withPrices = chkCopyWithPrices.isChecked
+            val orderText = buildOrderText(order.senderName,
+                buildItemsText(order.items, withPrices, productsById),
+                order.phone, order.address, order.orderNote)
+            copyTextOnly(ctx, orderText)
+            qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
+            btn.isEnabled = false
+            val originalText = (btn as? Button)?.text?.toString() ?: "Gửi khách"
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            val countdown = object : Runnable {
+                var remain = 5
+                override fun run() {
+                    if (remain > 0) {
+                        (btn as? Button)?.text = "Đợi ${remain}s"
+                        remain--
+                        handler.postDelayed(this, 1000L)
+                    } else {
+                        (btn as? Button)?.text = originalText
+                        btn.isEnabled = true
+                    }
+                }
+            }
+            handler.post(countdown)
+            val started = ChatWebActivity.requestSendChat(orderText) { status ->
+                when {
+                    status == "OK" -> android.widget.Toast.makeText(
+                        ctx, "Đã gửi cho khách", android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    status == "NO_INPUT" -> android.widget.Toast.makeText(
+                        ctx, "Không tìm thấy ô chat. Hãy mở 1 hội thoại trước.", android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    status == "NO_BTN" -> android.widget.Toast.makeText(
+                        ctx, "Không tìm thấy nút gửi của Zalo", android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    else -> android.widget.Toast.makeText(
+                        ctx, "Gửi lỗi: $status", android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            if (!started) {
+                handler.removeCallbacks(countdown)
+                (btn as? Button)?.text = originalText
+                btn.isEnabled = true
+                android.widget.Toast.makeText(
+                    ctx, "Chat Web chưa mở, không thể gửi", android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+        view.findViewById<Button>(R.id.btnSendGroup)?.setOnClickListener { btn ->
+            val groupChat = runCatching { MessagesDb(ctx).getFirstOrderGroupChat() }.getOrNull()
+            if (groupChat == null || groupChat.name.isBlank()) {
+                android.widget.Toast.makeText(
+                    ctx, "Chưa có nhóm nào loại 'order' đang active", android.widget.Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
+            captureContact()
+            val withPrices = chkCopyWithPrices.isChecked
+            val orderText = buildOrderText(order.senderName,
+                buildItemsText(order.items, withPrices, productsById),
+                order.phone, order.address, order.orderNote)
+            copyTextOnly(ctx, orderText)
+            qrHolder[0]?.let { PendingQr.dataUrl = BankQr.bitmapToDataUrl(it) }
+            btn.isEnabled = false
+            val originalText = (btn as? Button)?.text?.toString() ?: "Gửi nhóm"
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            val countdown = object : Runnable {
+                var remain = 5
+                override fun run() {
+                    if (remain > 0) {
+                        (btn as? Button)?.text = "Đợi ${remain}s"
+                        remain--
+                        handler.postDelayed(this, 1000L)
+                    } else {
+                        (btn as? Button)?.text = originalText
+                        btn.isEnabled = true
+                    }
+                }
+            }
+            handler.post(countdown)
+
+            val searchStarted = ChatWebActivity.requestSearch(groupChat.name, "name") { sStatus, _ ->
+                if (sStatus != "OK") {
+                    handler.removeCallbacks(countdown)
+                    (btn as? Button)?.text = originalText
+                    btn.isEnabled = true
+                    val msg = when (sStatus) {
+                        "NO_INPUT" -> "Không tìm thấy ô tìm kiếm Zalo"
+                        "NO_RESULT" -> "Không tìm thấy nhóm '${groupChat.name}' trên Zalo"
+                        else -> "Tìm nhóm lỗi: $sStatus"
+                    }
+                    android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
+                    return@requestSearch
+                }
+                handler.postDelayed({
+                    val sendStarted = ChatWebActivity.requestSendChat(orderText) { status ->
+                        when {
+                            status == "OK" -> android.widget.Toast.makeText(
+                                ctx, "Đã gửi vào nhóm ${groupChat.name}", android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            status == "NO_INPUT" -> android.widget.Toast.makeText(
+                                ctx, "Không tìm thấy ô chat nhóm", android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            status == "NO_BTN" -> android.widget.Toast.makeText(
+                                ctx, "Không tìm thấy nút gửi của Zalo", android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            else -> android.widget.Toast.makeText(
+                                ctx, "Gửi nhóm lỗi: $status", android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                    if (!sendStarted) {
+                        handler.removeCallbacks(countdown)
+                        (btn as? Button)?.text = originalText
+                        btn.isEnabled = true
+                        android.widget.Toast.makeText(
+                            ctx, "Chat Web chưa mở, không thể gửi", android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }, 600L)
+            }
+            if (!searchStarted) {
+                handler.removeCallbacks(countdown)
+                (btn as? Button)?.text = originalText
+                btn.isEnabled = true
+                android.widget.Toast.makeText(
+                    ctx, "Chat Web chưa mở, không thể gửi", android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
         }
 
         val btnSave = view.findViewById<Button>(R.id.btnSave)
