@@ -134,6 +134,8 @@ class ChatWebActivity : AppCompatActivity() {
       } catch(_) {}
     }
 
+    var d1 = 900 + Math.floor(Math.random() * 400);
+    var d2 = 700 + Math.floor(Math.random() * 400);
     setTimeout(function(){
       dismissContactPreview();
       setTimeout(function(){
@@ -143,13 +145,23 @@ class ChatWebActivity : AppCompatActivity() {
           return;
         }
         try {
-          btn.click();
+          var r = btn.getBoundingClientRect();
+          var cx = r.left + r.width / 2;
+          var cy = r.top + r.height / 2;
+          ['mouseover','mouseenter','mousemove','mousedown','mouseup','click'].forEach(function(t){
+            try {
+              btn.dispatchEvent(new MouseEvent(t, {
+                bubbles: true, cancelable: true, view: window,
+                clientX: cx, clientY: cy, button: 0
+              }));
+            } catch(_) {}
+          });
           AutoOrderBridge.onSendChatResult('OK');
         } catch (e) {
           try { AutoOrderBridge.onSendChatResult('ERR_' + (e && e.message ? e.message : e)); } catch(_) {}
         }
-      }, 150);
-    }, 300);
+      }, d2);
+    }, d1);
     return 'PENDING';
   } catch (e) {
     return 'ERR_' + (e && e.message ? e.message : e);
@@ -1516,6 +1528,14 @@ class ChatWebActivity : AppCompatActivity() {
             title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
             title.maxLines = 1
             title.ellipsize = android.text.TextUtils.TruncateAt.END
+            title.paintFlags = title.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+            title.isClickable = true
+            title.isFocusable = true
+            title.setOnClickListener {
+                OrderExtractor.pickZaloChat(this, "Đổi khách hàng cho \"$nameLabel\"") { zc ->
+                    onPickCandidate(index, zc)
+                }
+            }
             val titleLp = android.widget.LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
             )
@@ -1557,6 +1577,14 @@ class ChatWebActivity : AppCompatActivity() {
             title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
             title.maxLines = 1
             title.ellipsize = android.text.TextUtils.TruncateAt.END
+            title.paintFlags = title.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+            title.isClickable = true
+            title.isFocusable = true
+            title.setOnClickListener {
+                OrderExtractor.pickZaloChat(this, "Map khách hàng cho \"$nameLabel\"") { zc ->
+                    onPickCandidate(index, zc)
+                }
+            }
             val titleLp = android.widget.LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
             )

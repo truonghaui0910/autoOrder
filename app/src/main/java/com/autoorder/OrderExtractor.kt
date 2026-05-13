@@ -336,6 +336,97 @@ object OrderExtractor {
         showPopup(ctx, chat.zaloId, chat.name, chat.avatarUrl, order)
     }
 
+    /**
+     * Mở dialog chọn 1 Zalo chat 1-1 (không group). Dùng cho:
+     *  - Tạo đơn mới thủ công (Orders → "Thêm đơn").
+     *  - Map tay 1 đơn AI không khớp được tự động (Chốt đơn → click tên cảnh báo).
+     */
+    fun pickZaloChat(
+        ctx: Context,
+        title: String = "Chọn khách hàng",
+        onPick: (ZaloChat) -> Unit
+    ) {
+        val msgDb = MessagesDb(ctx)
+        val allChats = msgDb.listZaloChats().filter { !it.isGroup }
+        if (allChats.isEmpty()) {
+            android.widget.Toast.makeText(
+                ctx, "Chưa có chat 1-1 nào. Đồng bộ Zalo trước.",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val dialog = Dialog(ctx, R.style.TransparentDialog)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val density = ctx.resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+            setBackgroundResource(R.drawable.bg_dialog_card)
+        }
+
+        val titleView = android.widget.TextView(ctx).apply {
+            text = title
+            textSize = 16f
+            setTextColor(0xFF212121.toInt())
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        container.addView(titleView)
+
+        val etSearch = EditText(ctx).apply {
+            hint = "Tìm tên / SĐT / địa chỉ"
+            setSingleLine(true)
+            setBackgroundResource(R.drawable.bg_input_field)
+            val ph = (12 * density).toInt()
+            val pv = (10 * density).toInt()
+            setPadding(ph, pv, ph, pv)
+            textSize = 14f
+        }
+        val lpSearch = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = (10 * density).toInt() }
+        container.addView(etSearch, lpSearch)
+
+        val list = androidx.recyclerview.widget.RecyclerView(ctx).apply {
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(ctx)
+        }
+        val adapter = ZaloChatsAdapter { chat ->
+            dialog.dismiss()
+            onPick(chat)
+        }
+        list.adapter = adapter
+
+        val sorted = allChats.sortedByDescending { it.lastMsgAt }
+        adapter.submit(sorted)
+
+        etSearch.addTextChangedListener(simpleWatch { s ->
+            val q = s.trim().lowercase()
+            val filtered = if (q.isBlank()) sorted else sorted.filter {
+                it.name.lowercase().contains(q) ||
+                    it.phone.lowercase().contains(q) ||
+                    it.address.lowercase().contains(q)
+            }
+            adapter.submit(filtered)
+        })
+
+        val listH = (ctx.resources.displayMetrics.heightPixels * 0.6).toInt()
+        val lpList = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, listH
+        ).apply { topMargin = (10 * density).toInt() }
+        container.addView(list, lpList)
+
+        dialog.setContentView(container)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(0x00000000))
+            val w = (ctx.resources.displayMetrics.widthPixels * 0.94).toInt()
+            setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.show()
+    }
+
     fun extractAndShow(ctx: Context, animId: String, peerName: String, avatarUrl: String, messagesJson: String) {
         if (ANTHROPIC_KEY.isBlank()) {
             main.post {
