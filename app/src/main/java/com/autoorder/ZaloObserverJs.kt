@@ -23,6 +23,20 @@ internal const val ZALO_OBSERVER_JS = """
     max = max || 1000;
     return s.length > max ? s.substring(0, max) + '…' : s;
   }
+  function multilineSnippet(s, max) {
+    if (!s) return '';
+    s = s.replace(/ /g, ' ')
+         .replace(/[ \t]+\n/g, '\n')
+         .replace(/\n[ \t]+/g, '\n')
+         .replace(/[ \t]{2,}/g, ' ')
+         .replace(/\n{3,}/g, '\n\n')
+         .trim();
+    max = max || 2000;
+    return s.length > max ? s.substring(0, max) + '…' : s;
+  }
+  function flatten(s) {
+    return (s || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+  }
   function classOf(node) {
     if (!node || !node.className) return '';
     return (typeof node.className === 'string') ? node.className
@@ -325,7 +339,8 @@ internal const val ZALO_OBSERVER_JS = """
           }
           if (!text) continue;
           dbgFromMe++;
-          arr.push({ from: 'me', text: snippet(text, 2000), time: String(t), replies: [] });
+          var displayText = multilineSnippet(text, 2000);
+          arr.push({ from: 'me', text: displayText, time: String(t), replies: [], _key: flatten(displayText) });
         } else {
           dbgNonMe++;
           var nameEl = it.querySelector('.message-sender-name-content .truncate') ||
@@ -338,7 +353,7 @@ internal const val ZALO_OBSERVER_JS = """
           var quoteEl = it.querySelector('.message-quote-fragment__description');
           if (!quoteEl) continue;
           dbgWithQuote++;
-          var quoteKey = snippet((quoteEl.innerText || '').trim(), 2000);
+          var quoteKey = flatten(quoteEl.innerText || '');
           if (!quoteKey) continue;
           var bodyEl = it.querySelector('[data-component=text-container]');
           var rText = '';
@@ -370,9 +385,10 @@ internal const val ZALO_OBSERVER_JS = """
           if (!rText) continue;
           dbgReplies++;
           var matched = false;
+          var rDisplay = multilineSnippet(rText, 2000);
           for (var k = arr.length - 1; k >= 0; k--) {
-            if (matchQuote(arr[k].text, quoteKey)) {
-              arr[k].replies.push({ text: snippet(rText, 2000), time: String(t) });
+            if (matchQuote(arr[k]._key, quoteKey)) {
+              arr[k].replies.push({ text: rDisplay, time: String(t) });
               dbgRepMatched++;
               matched = true;
               break;
