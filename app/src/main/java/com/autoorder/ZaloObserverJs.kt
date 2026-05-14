@@ -280,9 +280,29 @@ internal const val ZALO_OBSERVER_JS = """
     }
 
     function finish(nodes) {
+      var TARGET_SENDER = 'ĐH Tuấn ck Đù';
       var arr = [];
+      var lastNonMeSender = '';
       var dbgTotal = nodes.length, dbgWithTs = 0, dbgInRange = 0, dbgFromMe = 0;
+      var dbgReplies = 0, dbgRepMatched = 0, dbgNonMe = 0, dbgWithQuote = 0;
+      var dbgSenders = {};
       var dbgFirstTs = NaN, dbgLastTs = NaN;
+      function norm(s) {
+        return (s || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+      }
+      function stripTail(s) {
+        return s.replace(/[\s\.…]+$/g, '');
+      }
+      function matchQuote(meText, qKey) {
+        if (!meText || !qKey) return false;
+        if (meText === qKey) return true;
+        var a = stripTail(meText), b = stripTail(qKey);
+        if (a === b) return true;
+        if (b.length >= 12 && a.indexOf(b) === 0) return true;
+        if (b.length >= 20 && a.indexOf(b) >= 0) return true;
+        if (a.length >= 12 && b.indexOf(a) === 0) return true;
+        return false;
+      }
       for (var i = 0; i < nodes.length; i++) {
         var it = nodes[i];
         var t = tsOf(it);
@@ -292,25 +312,93 @@ internal const val ZALO_OBSERVER_JS = """
         dbgLastTs = t;
         if (t < dayStartMs || t > dayEndMs) continue;
         dbgInRange++;
-        if (!isMeNode(it)) continue;
-        dbgFromMe++;
-        var textEl = it.querySelector('[data-component=text-container]') ||
-                     it.querySelector('.text-message__container');
-        var text = textEl ? (textEl.innerText || '').trim() : '';
-        if (!text) {
-          var card = extractContactCard(it);
-          if (card) text = card;
-          else if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
-            text = '[hình ảnh]';
+        if (isMeNode(it)) {
+          var textEl = it.querySelector('[data-component=text-container]') ||
+                       it.querySelector('.text-message__container');
+          var text = textEl ? (textEl.innerText || '').trim() : '';
+          if (!text) {
+            var card = extractContactCard(it);
+            if (card) text = card;
+            else if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
+              text = '[hình ảnh]';
+            }
+          }
+          if (!text) continue;
+          dbgFromMe++;
+          arr.push({ from: 'me', text: snippet(text, 2000), time: String(t), replies: [] });
+        } else {
+          dbgNonMe++;
+          var nameEl = it.querySelector('.message-sender-name-content .truncate') ||
+                       it.querySelector('.message-sender-name-content');
+          var senderName = nameEl ? norm(nameEl.innerText || '') : '';
+          if (senderName) lastNonMeSender = senderName;
+          else senderName = lastNonMeSender;
+          if (senderName) dbgSenders[senderName] = (dbgSenders[senderName] || 0) + 1;
+          if (norm(senderName) !== norm(TARGET_SENDER)) continue;
+          var quoteEl = it.querySelector('.message-quote-fragment__description');
+          if (!quoteEl) continue;
+          dbgWithQuote++;
+          var quoteKey = snippet((quoteEl.innerText || '').trim(), 2000);
+          if (!quoteKey) continue;
+          var bodyEl = it.querySelector('[data-component=text-container]');
+          var rText = '';
+          if (bodyEl) {
+            var bClone = bodyEl.cloneNode(true);
+            var mentions = bClone.querySelectorAll('.mention-name');
+            for (var mi = 0; mi < mentions.length; mi++) {
+              if (mentions[mi].parentNode) mentions[mi].parentNode.removeChild(mentions[mi]);
+            }
+            rText = (bClone.innerText || '').trim();
+          } else {
+            var holder = it.querySelector('.text-message__container');
+            if (holder) {
+              var clone = holder.cloneNode(true);
+              var q = clone.querySelector('.message-quote-fragment__container');
+              if (q && q.parentNode) q.parentNode.removeChild(q);
+              var mentions2 = clone.querySelectorAll('.mention-name');
+              for (var mj = 0; mj < mentions2.length; mj++) {
+                if (mentions2[mj].parentNode) mentions2[mj].parentNode.removeChild(mentions2[mj]);
+              }
+              rText = (clone.innerText || '').trim();
+            }
+          }
+          if (!rText) {
+            if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
+              rText = '[hình ảnh]';
+            }
+          }
+          if (!rText) continue;
+          dbgReplies++;
+          var matched = false;
+          for (var k = arr.length - 1; k >= 0; k--) {
+            if (matchQuote(arr[k].text, quoteKey)) {
+              arr[k].replies.push({ text: snippet(rText, 2000), time: String(t) });
+              dbgRepMatched++;
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) {
+            try {
+              AutoOrderBridge.onDump('checkout-nomatch', '',
+                'q=' + quoteKey.substring(0, 120) +
+                ' | r=' + rText.substring(0, 80), '');
+            } catch (e) {}
           }
         }
-        if (!text) continue;
-        arr.push({ from: 'me', text: snippet(text, 2000), time: String(t) });
       }
       try {
+        var senderList = [];
+        for (var sk in dbgSenders) {
+          if (dbgSenders.hasOwnProperty(sk)) senderList.push(sk + '(' + dbgSenders[sk] + ')');
+        }
         AutoOrderBridge.onDump('checkout-debug', '',
           'total=' + dbgTotal + ' withTs=' + dbgWithTs +
           ' inRange=' + dbgInRange + ' fromMe=' + dbgFromMe +
+          ' nonMe=' + dbgNonMe + ' withQuote=' + dbgWithQuote +
+          ' replies=' + dbgReplies + ' matched=' + dbgRepMatched +
+          ' senders=[' + senderList.join(', ') + ']' +
+          ' target=[' + TARGET_SENDER + ']' +
           ' firstTs=' + dbgFirstTs + ' lastTs=' + dbgLastTs +
           ' dayStart=' + dayStartMs + ' dayEnd=' + dayEndMs, '');
       } catch (e) {}

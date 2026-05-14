@@ -860,6 +860,7 @@ class ChatWebActivity : AppCompatActivity() {
 
         var texts: List<String> = emptyList()
         var timesMs: List<Long> = emptyList()
+        var replies: List<List<Pair<String, Long>>> = emptyList()
         val ordersByIndex = LinkedHashMap<Int, OrderExtractor.BatchOrder>()
         val loadingIndices = mutableSetOf<Int>()
         val analyzedIndices = mutableSetOf<Int>()
@@ -918,7 +919,7 @@ class ChatWebActivity : AppCompatActivity() {
 
         rerender = {
             renderPairedRows(
-                messagesContainer, texts, timesMs,
+                messagesContainer, texts, timesMs, replies,
                 ordersByIndex, loadingIndices, analyzedIndices, savedIndices, savedOrderInfo,
                 analyzeOne, saveOne, pickCandidate, togglePaid
             )
@@ -1149,7 +1150,7 @@ class ChatWebActivity : AppCompatActivity() {
             tvStatus.text = "Đang đọc tin nhắn của $currentChatName..."
             tvMessagesLabel.visibility = View.GONE
             messagesContainer.removeAllViews()
-            texts = emptyList(); timesMs = emptyList()
+            texts = emptyList(); timesMs = emptyList(); replies = emptyList()
             ordersByIndex.clear(); loadingIndices.clear(); analyzedIndices.clear()
             savedIndices.clear()
             btnRead.isEnabled = false
@@ -1172,13 +1173,26 @@ class ChatWebActivity : AppCompatActivity() {
                         }
                         val newTexts = ArrayList<String>(arr.length())
                         val newTimesMs = ArrayList<Long>(arr.length())
+                        val newReplies = ArrayList<List<Pair<String, Long>>>(arr.length())
                         for (k in 0 until arr.length()) {
                             val o = arr.optJSONObject(k) ?: continue
                             newTexts.add(o.optString("text"))
                             newTimesMs.add(o.optString("time").toLongOrNull() ?: 0L)
+                            val rArr = o.optJSONArray("replies")
+                            val list = ArrayList<Pair<String, Long>>()
+                            if (rArr != null) {
+                                for (m in 0 until rArr.length()) {
+                                    val ro = rArr.optJSONObject(m) ?: continue
+                                    val rt = ro.optString("text")
+                                    val rtm = ro.optString("time").toLongOrNull() ?: 0L
+                                    if (rt.isNotEmpty()) list.add(rt to rtm)
+                                }
+                            }
+                            newReplies.add(list)
                         }
                         texts = newTexts
                         timesMs = newTimesMs
+                        replies = newReplies
                         tvMessagesLabel.visibility = View.VISIBLE
                         tvMessagesLabel.text = "Tin nhắn  /  Đơn hàng AI"
                         rerender()
@@ -1237,6 +1251,7 @@ class ChatWebActivity : AppCompatActivity() {
         container: android.widget.LinearLayout,
         texts: List<String>,
         timesMs: List<Long>,
+        replies: List<List<Pair<String, Long>>>,
         ordersByIndex: Map<Int, OrderExtractor.BatchOrder>,
         loadingIndices: Set<Int>,
         analyzedIndices: Set<Int>,
@@ -1260,7 +1275,7 @@ class ChatWebActivity : AppCompatActivity() {
         for (i in texts.indices) {
             val row = android.widget.LinearLayout(this)
             row.orientation = android.widget.LinearLayout.HORIZONTAL
-            row.weightSum = 2f
+            row.weightSum = 7f
             val rowLp = android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1269,11 +1284,11 @@ class ChatWebActivity : AppCompatActivity() {
             rowLp.bottomMargin = marginV
             row.layoutParams = rowLp
 
-            // LEFT: message bubble
+            // LEFT: message bubble (weight 3/7)
             val leftCol = android.widget.LinearLayout(this)
             leftCol.orientation = android.widget.LinearLayout.VERTICAL
             val leftLp = android.widget.LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 3f
             )
             leftLp.marginEnd = gap / 2
             leftCol.layoutParams = leftLp
@@ -1305,11 +1320,53 @@ class ChatWebActivity : AppCompatActivity() {
                 leftCol.addView(tvTime)
             }
 
-            // RIGHT: order card or placeholder
+            // MIDDLE: replies from target sender quoting this me-message (weight 1/7 = 1/3 of leftCol)
+            val replyCol = android.widget.LinearLayout(this)
+            replyCol.orientation = android.widget.LinearLayout.VERTICAL
+            val replyLp = android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            )
+            replyLp.marginStart = gap / 2
+            replyLp.marginEnd = gap / 2
+            replyCol.layoutParams = replyLp
+
+            val rList = replies.getOrNull(i) ?: emptyList()
+            for ((rt, rtm) in rList) {
+                val rb = TextView(this)
+                rb.text = rt
+                rb.setPadding(padH, padV, padH, padV)
+                rb.textSize = 11f
+                rb.setTextColor(0xFF263238.toInt())
+                rb.background = androidx.core.content.ContextCompat.getDrawable(
+                    this, R.drawable.bg_input_field
+                )
+                val rbLp = android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                rbLp.bottomMargin = (2 * density).toInt()
+                rb.layoutParams = rbLp
+                replyCol.addView(rb)
+                if (rtm > 0L) {
+                    val tvT = TextView(this)
+                    tvT.text = timeFmt.format(java.util.Date(rtm))
+                    tvT.textSize = 9f
+                    tvT.setTextColor(0xFF90A4AE.toInt())
+                    val ttLp = android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                    ttLp.bottomMargin = (4 * density).toInt()
+                    tvT.layoutParams = ttLp
+                    replyCol.addView(tvT)
+                }
+            }
+
+            // RIGHT: order card or placeholder (weight 3/7)
             val rightCol = android.widget.LinearLayout(this)
             rightCol.orientation = android.widget.LinearLayout.VERTICAL
             val rightLp = android.widget.LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 3f
             )
             rightLp.marginStart = gap / 2
             rightCol.layoutParams = rightLp
@@ -1332,6 +1389,7 @@ class ChatWebActivity : AppCompatActivity() {
             }
 
             row.addView(leftCol)
+            row.addView(replyCol)
             row.addView(rightCol)
             container.addView(row)
         }
