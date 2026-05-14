@@ -38,6 +38,7 @@ class OrdersAdapter(
         val total: TextView = v.findViewById(R.id.total)
         val meta: TextView = v.findViewById(R.id.meta)
         val preview: TextView = v.findViewById(R.id.preview)
+        val address: TextView = v.findViewById(R.id.address)
         val paidIcon: ImageView = v.findViewById(R.id.paidIcon)
         val checkPaymentIcon: ImageView = v.findViewById(R.id.checkPaymentIcon)
     }
@@ -56,6 +57,14 @@ class OrdersAdapter(
         if (o.phone.isNotBlank()) parts.add(o.phone)
         holder.meta.text = parts.joinToString(" · ")
         holder.preview.text = o.itemsText.replace("\n\nTổng:", " · Tổng:")
+
+        val isWide = holder.itemView.resources.configuration.smallestScreenWidthDp >= 600
+        if (isWide && o.address.isNotBlank()) {
+            holder.address.text = o.address
+            holder.address.visibility = View.VISIBLE
+        } else {
+            holder.address.visibility = View.GONE
+        }
 
         if (o.zaloId.isNotBlank()) {
             holder.zaloId.text = "ID: ${o.zaloId}"

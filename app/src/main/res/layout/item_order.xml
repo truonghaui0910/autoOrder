@@ -97,14 +97,37 @@
             android:singleLine="true"
             android:ellipsize="end" />
 
-        <TextView
-            android:id="@+id/preview"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:textSize="13sp"
-            android:textColor="#37474F"
-            android:maxLines="3"
-            android:ellipsize="end" />
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <TextView
+                android:id="@+id/preview"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="13sp"
+                android:textColor="#37474F"
+                android:maxLines="3"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/address"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_gravity="bottom"
+                android:maxWidth="320dp"
+                android:textSize="12sp"
+                android:textColor="#546E7A"
+                android:textStyle="italic"
+                android:gravity="end"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
