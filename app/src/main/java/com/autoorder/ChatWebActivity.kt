@@ -820,6 +820,9 @@ class ChatWebActivity : AppCompatActivity() {
         val tvStatus = view.findViewById<TextView>(R.id.tvStatus)
         val tvMessagesLabel = view.findViewById<TextView>(R.id.tvMessagesLabel)
         val messagesContainer = view.findViewById<android.widget.LinearLayout>(R.id.messagesContainer)
+        val btnFilterUnmapped = view.findViewById<TextView>(R.id.btnFilterUnmapped)
+        val btnFilterUnsaved = view.findViewById<TextView>(R.id.btnFilterUnsaved)
+        val btnFilterUnpaid = view.findViewById<TextView>(R.id.btnFilterUnpaid)
 
         val labels = chats.map { it.name.ifBlank { it.zaloId } }
         spChat.adapter = android.widget.ArrayAdapter(
@@ -861,6 +864,9 @@ class ChatWebActivity : AppCompatActivity() {
         var texts: List<String> = emptyList()
         var timesMs: List<Long> = emptyList()
         var replies: List<List<Pair<String, Long>>> = emptyList()
+        var filterUnmapped = false
+        var filterUnsaved = false
+        var filterUnpaid = false
         val ordersByIndex = LinkedHashMap<Int, OrderExtractor.BatchOrder>()
         val loadingIndices = mutableSetOf<Int>()
         val analyzedIndices = mutableSetOf<Int>()
@@ -917,9 +923,36 @@ class ChatWebActivity : AppCompatActivity() {
             }
         }
 
+        fun styleFilterChip(v: TextView, on: Boolean) {
+            v.background = androidx.core.content.ContextCompat.getDrawable(
+                this, if (on) R.drawable.bg_btn_outline else R.drawable.bg_input_field
+            )
+            v.setTextColor(if (on) 0xFF1E88E5.toInt() else 0xFF90A4AE.toInt())
+            v.setTypeface(v.typeface, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        }
+
+        fun visibleIndices(): List<Int> {
+            return texts.indices.filter { i ->
+                if (filterUnmapped) {
+                    val ord = ordersByIndex[i]
+                    if (ord != null && ord.matched) return@filter false
+                }
+                if (filterUnsaved) {
+                    if (i in savedIndices) return@filter false
+                }
+                if (filterUnpaid) {
+                    if (savedOrderInfo[i]?.second == true) return@filter false
+                }
+                true
+            }
+        }
+
         rerender = {
+            styleFilterChip(btnFilterUnmapped, filterUnmapped)
+            styleFilterChip(btnFilterUnsaved, filterUnsaved)
+            styleFilterChip(btnFilterUnpaid, filterUnpaid)
             renderPairedRows(
-                messagesContainer, texts, timesMs, replies,
+                messagesContainer, texts, timesMs, replies, visibleIndices(),
                 ordersByIndex, loadingIndices, analyzedIndices, savedIndices, savedOrderInfo,
                 analyzeOne, saveOne, pickCandidate, togglePaid
             )
@@ -1129,6 +1162,22 @@ class ChatWebActivity : AppCompatActivity() {
             }
         }
 
+        btnFilterUnmapped.setOnClickListener {
+            filterUnmapped = !filterUnmapped
+            rerender()
+        }
+        btnFilterUnsaved.setOnClickListener {
+            filterUnsaved = !filterUnsaved
+            rerender()
+        }
+        btnFilterUnpaid.setOnClickListener {
+            filterUnpaid = !filterUnpaid
+            rerender()
+        }
+        styleFilterChip(btnFilterUnmapped, filterUnmapped)
+        styleFilterChip(btnFilterUnsaved, filterUnsaved)
+        styleFilterChip(btnFilterUnpaid, filterUnpaid)
+
         btnRead.setOnClickListener {
             val pos = spChat.selectedItemPosition
             if (pos < 0 || pos >= chats.size) return@setOnClickListener
@@ -1252,6 +1301,7 @@ class ChatWebActivity : AppCompatActivity() {
         texts: List<String>,
         timesMs: List<Long>,
         replies: List<List<Pair<String, Long>>>,
+        visibleIndices: List<Int>,
         ordersByIndex: Map<Int, OrderExtractor.BatchOrder>,
         loadingIndices: Set<Int>,
         analyzedIndices: Set<Int>,
@@ -1272,7 +1322,7 @@ class ChatWebActivity : AppCompatActivity() {
         val marginV = (6 * density).toInt()
         val gap = (8 * density).toInt()
 
-        for (i in texts.indices) {
+        for (i in visibleIndices) {
             val row = android.widget.LinearLayout(this)
             row.orientation = android.widget.LinearLayout.HORIZONTAL
             row.weightSum = 7f

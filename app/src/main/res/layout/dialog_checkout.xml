@@ -196,14 +196,65 @@
                 </FrameLayout>
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvStatus"
+            <LinearLayout
+                android:id="@+id/statusRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:textSize="12sp"
-                android:textColor="#90A4AE"
-                android:visibility="gone" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="12dp">
+
+                <TextView
+                    android:id="@+id/tvStatus"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#90A4AE"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/btnFilterUnmapped"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp"
+                    android:text="Chưa map"
+                    android:textSize="10sp"
+                    android:textColor="#90A4AE"
+                    android:background="@drawable/bg_input_field"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <TextView
+                    android:id="@+id/btnFilterUnsaved"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp"
+                    android:text="Chưa lưu"
+                    android:textSize="10sp"
+                    android:textColor="#90A4AE"
+                    android:background="@drawable/bg_input_field"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <TextView
+                    android:id="@+id/btnFilterUnpaid"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp"
+                    android:text="Chưa TT"
+                    android:textSize="10sp"
+                    android:textColor="#90A4AE"
+                    android:background="@drawable/bg_input_field"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/tvMessagesLabel"
