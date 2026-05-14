@@ -9,7 +9,8 @@ import java.text.NumberFormat
 import java.util.Locale
 
 class CustomersAdapter(
-    private var items: List<ShopDb.CustomerStat>
+    private var items: List<ShopDb.CustomerStat>,
+    private val onClick: ((ShopDb.CustomerStat) -> Unit)? = null
 ) : RecyclerView.Adapter<CustomersAdapter.VH>() {
 
     private val priceFormat = NumberFormat.getInstance(Locale("vi", "VN"))
@@ -37,6 +38,7 @@ class CustomersAdapter(
         if (c.phone.isNotBlank()) parts.add(c.phone)
         holder.qty.text = parts.joinToString(" · ")
         holder.revenue.text = priceFormat.format(c.totalRevenue) + "₫"
+        holder.itemView.setOnClickListener { onClick?.invoke(c) }
     }
 
     override fun getItemCount(): Int = items.size

@@ -122,7 +122,11 @@ class OrdersActivity : AppCompatActivity() {
             onCheckPayment = { o -> launchCheckPayment(o) }
         )
         soldAdapter = ProductsSoldAdapter(emptyList())
-        customersAdapter = CustomersAdapter(emptyList())
+        customersAdapter = CustomersAdapter(emptyList()) { c ->
+            etSearch.setText(c.displayName)
+            etSearch.setSelection(etSearch.text.length)
+            setTab(Tab.ORDERS)
+        }
 
         chips.add(findViewById<TextView>(R.id.chipToday))
         chips.add(findViewById<TextView>(R.id.chipYesterday))
