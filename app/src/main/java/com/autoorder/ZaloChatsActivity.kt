@@ -56,7 +56,7 @@ class ZaloChatsActivity : AppCompatActivity() {
     private lateinit var spSort: Spinner
     private lateinit var spChatType: Spinner
     private lateinit var spKind: Spinner
-    private lateinit var db: MessagesDb
+    private lateinit var db: ShopDb
 
     private var allRows: List<ZaloChat> = emptyList()
 
@@ -64,7 +64,7 @@ class ZaloChatsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_zalo_chats)
 
-        db = MessagesDb(this)
+        db = ShopDb(this)
         list = findViewById(R.id.list)
         headerCount = findViewById(R.id.headerCount)
         emptyView = findViewById(R.id.emptyView)

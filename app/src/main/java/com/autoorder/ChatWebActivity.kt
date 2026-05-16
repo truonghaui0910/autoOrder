@@ -225,7 +225,6 @@ class ChatWebActivity : AppCompatActivity() {
     private lateinit var counter: TextView
     private lateinit var qrPasteBar: View
     private lateinit var btnPasteQr: android.widget.Button
-    private lateinit var db: MessagesDb
     private lateinit var shopDb: ShopDb
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -243,7 +242,6 @@ class ChatWebActivity : AppCompatActivity() {
         counter = findViewById(R.id.counter)
         qrPasteBar = findViewById(R.id.qrPasteBar)
         btnPasteQr = findViewById(R.id.btnPasteQr)
-        db = MessagesDb(this)
         shopDb = ShopDb(this)
 
         btnPasteQr.setOnClickListener { pastePendingQr() }
@@ -792,8 +790,7 @@ class ChatWebActivity : AppCompatActivity() {
             if (!existing.isShowing) existing.show()
             return
         }
-        val msgDb = MessagesDb(this)
-        val chats = msgDb.listZaloChats().filter {
+        val chats = shopDb.listZaloChats().filter {
             it.status == "active" && it.chatType == "order"
         }
         if (chats.isEmpty()) {
@@ -1041,7 +1038,7 @@ class ChatWebActivity : AppCompatActivity() {
                     ioExecutor.execute {
                         val res = runCatching {
                             val r = ShopDb(this).insertOrderWithDedup(record, ord.items)
-                            runCatching { MessagesDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address) }
+                            runCatching { ShopDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address) }
                             r
                         }
                         mainHandler.post {
@@ -2006,7 +2003,7 @@ class ChatWebActivity : AppCompatActivity() {
         checkPaymentDialog?.let { runCatching { it.dismiss() } }
         checkPaymentDialog = null
         ioExecutor.shutdown()
-        runCatching { db.close() }
+        runCatching { shopDb.close() }
     }
 
     inner class JsBridge {
@@ -2052,7 +2049,7 @@ class ChatWebActivity : AppCompatActivity() {
             ioExecutor.execute {
                 runCatching {
                     val lastMsgAt = ZaloTimeParser.parse(timeText)
-                    db.upsertZaloChat(animId, name, avatarUrl, isGroup, lastMsgAt, timeText)
+                    shopDb.upsertZaloChat(animId, name, avatarUrl, isGroup, lastMsgAt, timeText)
                 }
             }
         }

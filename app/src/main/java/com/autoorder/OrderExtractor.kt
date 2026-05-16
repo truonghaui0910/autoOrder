@@ -136,7 +136,7 @@ object OrderExtractor {
                 val inputArr = JSONArray(messagesJson)
                 val products = ShopDb(ctx).listProducts(activeOnly = true)
                 val productsById = products.associateBy { it.id }
-                val msgDb = MessagesDb(ctx)
+                val msgDb = ShopDb(ctx)
                 val accumulated = ArrayList<BatchOrder>()
 
                 val total = inputArr.length()
@@ -346,7 +346,7 @@ object OrderExtractor {
         title: String = "Chọn khách hàng",
         onPick: (ZaloChat) -> Unit
     ) {
-        val msgDb = MessagesDb(ctx)
+        val msgDb = ShopDb(ctx)
         val allChats = msgDb.listZaloChats().filter { !it.isGroup }
         if (allChats.isEmpty()) {
             android.widget.Toast.makeText(
@@ -790,7 +790,7 @@ object OrderExtractor {
         pendingOrder = order
 
         val zaloChat = if (animId.isNotBlank())
-            runCatching { MessagesDb(ctx).getZaloChatByZaloId(animId) }.getOrNull() else null
+            runCatching { ShopDb(ctx).getZaloChatByZaloId(animId) }.getOrNull() else null
         if (order.address.isBlank()) zaloChat?.addressList()?.firstOrNull()?.let { order.address = it }
         if (order.phone.isBlank()) zaloChat?.phoneList()?.firstOrNull()?.let { order.phone = it }
 
@@ -828,7 +828,7 @@ object OrderExtractor {
             val newType = if (isChecked) "customer" else "normal"
             io.execute {
                 runCatching {
-                    MessagesDb(ctx).setChatTypeByZaloId(
+                    ShopDb(ctx).setChatTypeByZaloId(
                         animId, newType,
                         fallbackName = peerName,
                         fallbackAvatarUrl = avatarUrl,
@@ -903,7 +903,7 @@ object OrderExtractor {
         refreshPhone = {
             renderSavedRow(phoneSavedRow, phoneSavedScroll, savedPhones,
                 etPhone.text.toString(), etPhone) { v ->
-                if (animId.isNotBlank() && MessagesDb(ctx).appendPhoneToZaloChat(animId, v)) {
+                if (animId.isNotBlank() && ShopDb(ctx).appendPhoneToZaloChat(animId, v)) {
                     savedPhones.add(v)
                     android.widget.Toast.makeText(ctx, "Đã lưu SĐT", android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -913,7 +913,7 @@ object OrderExtractor {
         refreshAddr = {
             renderSavedRow(addrSavedRow, addrSavedScroll, savedAddrs,
                 etAddr.text.toString(), etAddr) { v ->
-                if (animId.isNotBlank() && MessagesDb(ctx).appendAddressToZaloChat(animId, v)) {
+                if (animId.isNotBlank() && ShopDb(ctx).appendAddressToZaloChat(animId, v)) {
                     savedAddrs.add(v)
                     android.widget.Toast.makeText(ctx, "Đã lưu địa chỉ", android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -1347,7 +1347,7 @@ object OrderExtractor {
         }
 
         view.findViewById<Button>(R.id.btnSendGroup)?.setOnClickListener { btn ->
-            val groupChat = runCatching { MessagesDb(ctx).getFirstOrderGroupChat() }.getOrNull()
+            val groupChat = runCatching { ShopDb(ctx).getFirstOrderGroupChat() }.getOrNull()
             if (groupChat == null || groupChat.name.isBlank()) {
                 android.widget.Toast.makeText(
                     ctx, "Chưa có nhóm nào loại 'order' đang active", android.widget.Toast.LENGTH_LONG

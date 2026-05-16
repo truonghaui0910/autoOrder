@@ -435,6 +435,61 @@
                     android:background="#ECEFF1" />
 
                 <LinearLayout
+                    android:id="@+id/rowExportDb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="14dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?android:attr/selectableItemBackground">
+
+                    <ImageView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@drawable/ic_database"
+                        android:background="@drawable/bg_icon_circle"
+                        android:padding="7dp"
+                        android:contentDescription="Export DB" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="14dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Xuất DB ra Downloads"
+                            android:textSize="15sp"
+                            android:textColor="#212121" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Backup file autoorder.db"
+                            android:textSize="12sp"
+                            android:textColor="#78909C" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:contentDescription="Xuất" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginStart="64dp"
+                    android:background="#ECEFF1" />
+
+                <LinearLayout
                     android:id="@+id/rowOpenInbox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

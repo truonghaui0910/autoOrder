@@ -463,7 +463,7 @@ class OrdersActivity : AppCompatActivity() {
                 val rows = db.queryOrders(from, to, paid, search, limit = 500)
                 val ids = rows.map { it.zaloId }.filter { it.isNotBlank() }.toSet()
                 val avatars = if (ids.isEmpty()) emptyMap() else {
-                    val msgDb = MessagesDb(this)
+                    val msgDb = ShopDb(this)
                     ids.mapNotNull { id ->
                         msgDb.getZaloChatByZaloId(id)?.takeIf { it.avatarUrl.isNotBlank() }
                             ?.let { id to it.avatarUrl }
@@ -576,7 +576,7 @@ class OrdersActivity : AppCompatActivity() {
         etName.setText(o.senderName)
         val imgAvatar = view.findViewById<ImageView>(R.id.imgAvatar)
         val avatarUrl = if (o.zaloId.isNotBlank())
-            runCatching { MessagesDb(ctx).getZaloChatByZaloId(o.zaloId)?.avatarUrl.orEmpty() }
+            runCatching { ShopDb(ctx).getZaloChatByZaloId(o.zaloId)?.avatarUrl.orEmpty() }
                 .getOrDefault("") else ""
         if (avatarUrl.isNotBlank()) {
             imgAvatar.load(avatarUrl) {
@@ -591,7 +591,7 @@ class OrdersActivity : AppCompatActivity() {
         etOrderNote.setText(o.note)
 
         val zaloChat = if (o.zaloId.isNotBlank())
-            runCatching { MessagesDb(ctx).getZaloChatByZaloId(o.zaloId) }.getOrNull() else null
+            runCatching { ShopDb(ctx).getZaloChatByZaloId(o.zaloId) }.getOrNull() else null
         val savedPhones = mutableListOf<String>().apply { zaloChat?.phoneList()?.let { addAll(it) } }
         val savedAddrs = mutableListOf<String>().apply { zaloChat?.addressList()?.let { addAll(it) } }
         val phoneSavedScroll = view.findViewById<View>(R.id.phoneSavedScroll)
@@ -640,7 +640,7 @@ class OrdersActivity : AppCompatActivity() {
         refreshPhone = {
             renderSavedRow(phoneSavedRow, phoneSavedScroll, savedPhones,
                 etPhone.text.toString(), etPhone) { v ->
-                if (o.zaloId.isNotBlank() && MessagesDb(ctx).appendPhoneToZaloChat(o.zaloId, v)) {
+                if (o.zaloId.isNotBlank() && ShopDb(ctx).appendPhoneToZaloChat(o.zaloId, v)) {
                     savedPhones.add(v)
                     Toast.makeText(ctx, "Đã lưu SĐT", Toast.LENGTH_SHORT).show()
                 }
@@ -650,7 +650,7 @@ class OrdersActivity : AppCompatActivity() {
         refreshAddr = {
             renderSavedRow(addrSavedRow, addrSavedScroll, savedAddrs,
                 etAddr.text.toString(), etAddr) { v ->
-                if (o.zaloId.isNotBlank() && MessagesDb(ctx).appendAddressToZaloChat(o.zaloId, v)) {
+                if (o.zaloId.isNotBlank() && ShopDb(ctx).appendAddressToZaloChat(o.zaloId, v)) {
                     savedAddrs.add(v)
                     Toast.makeText(ctx, "Đã lưu địa chỉ", Toast.LENGTH_SHORT).show()
                 }
@@ -891,7 +891,7 @@ class OrdersActivity : AppCompatActivity() {
         }
 
         view.findViewById<Button>(R.id.btnSendGroup)?.setOnClickListener { btn ->
-            val groupChat = runCatching { MessagesDb(this).getFirstOrderGroupChat() }.getOrNull()
+            val groupChat = runCatching { ShopDb(this).getFirstOrderGroupChat() }.getOrNull()
             if (groupChat == null || groupChat.name.isBlank()) {
                 Toast.makeText(this, "Chưa có nhóm nào loại 'order' đang active", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
@@ -1018,7 +1018,7 @@ class OrdersActivity : AppCompatActivity() {
         }
         val avatarUrl = if (o.zaloId.isNotBlank()) {
             runCatching {
-                MessagesDb(this).getZaloChatByZaloId(o.zaloId)?.avatarUrl.orEmpty()
+                ShopDb(this).getZaloChatByZaloId(o.zaloId)?.avatarUrl.orEmpty()
             }.getOrDefault("")
         } else ""
         startActivity(Intent(this, ChatWebActivity::class.java)
