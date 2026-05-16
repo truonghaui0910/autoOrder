@@ -27,7 +27,7 @@ import androidx.recyclerview.widget.RecyclerView
 class ZaloChatsActivity : AppCompatActivity() {
 
     companion object {
-        private val CHAT_TYPES = listOf("normal", "customer", "order")
+        private val CHAT_TYPES = listOf("normal", "customer", "order", "shipper", "bartender")
         private val STATUSES = listOf("active", "inactive")
         private val SORT_LABELS = listOf(
             "Tin mới nhất",
@@ -35,8 +35,8 @@ class ZaloChatsActivity : AppCompatActivity() {
             "Tên A→Z",
             "Tên Z→A"
         )
-        private val TYPE_FILTER_LABELS = listOf("Tất cả loại", "normal", "customer", "order")
-        private val TYPE_FILTER_VALUES = listOf("", "normal", "customer", "order")
+        private val TYPE_FILTER_LABELS = listOf("Tất cả loại", "normal", "customer", "order", "shipper", "bartender")
+        private val TYPE_FILTER_VALUES = listOf("", "normal", "customer", "order", "shipper", "bartender")
         private val KIND_FILTER_LABELS = listOf("Tất cả", "Cá nhân", "Group")
 
         private fun foldText(s: String): String {

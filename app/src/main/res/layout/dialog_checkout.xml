@@ -141,7 +141,7 @@
                         android:id="@+id/btnReadMessages"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:text="Đọc Tin Nhắn"
+                        android:text="1. Đọc tin nhắn"
                         android:textColor="#FFFFFF"
                         android:textAllCaps="false"
                         android:textStyle="bold"
@@ -163,7 +163,7 @@
                     android:layout_weight="1"
                     android:layout_height="44dp"
                     android:layout_marginStart="6dp"
-                    android:text="Phân Tích"
+                    android:text="2. Phân tích"
                     android:textColor="#1E88E5"
                     android:textAllCaps="false"
                     android:textStyle="bold"
@@ -179,7 +179,7 @@
                         android:id="@+id/btnSaveAll"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:text="Lưu Đơn"
+                        android:text="3. Lưu đơn"
                         android:textColor="#1E88E5"
                         android:textAllCaps="false"
                         android:textStyle="bold"
@@ -196,28 +196,125 @@
                 </FrameLayout>
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/statusRow"
+            <TextView
+                android:id="@+id/tvStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textSize="12sp"
+                android:textColor="#90A4AE"
+                android:visibility="gone" />
+
+            <EditText
+                android:id="@+id/etSearch"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="6dp"
+                android:hint="Tìm trong tin nhắn của tôi..."
+                android:textSize="12sp"
+                android:background="@drawable/bg_input_field"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/filterScroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginTop="12dp">
+                android:visibility="gone">
 
-                <TextView
-                    android:id="@+id/tvStatus"
+                <HorizontalScrollView
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:textColor="#90A4AE"
-                    android:visibility="gone" />
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/btnFilterConfirmed"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="4dp"
+                            android:text="Đã xác nhận"
+                            android:textSize="10sp"
+                            android:textColor="#90A4AE"
+                            android:background="@drawable/bg_input_field"
+                            android:clickable="true"
+                            android:focusable="true" />
+
+                        <TextView
+                            android:id="@+id/btnFilterUnconfirmed"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="4dp"
+                            android:text="Chưa xác nhận"
+                            android:textSize="10sp"
+                            android:textColor="#90A4AE"
+                            android:background="@drawable/bg_input_field"
+                            android:clickable="true"
+                            android:focusable="true" />
+
+                        <TextView
+                            android:id="@+id/btnFilterFreeship"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="4dp"
+                            android:text="Free ship"
+                            android:textSize="10sp"
+                            android:textColor="#90A4AE"
+                            android:background="@drawable/bg_input_field"
+                            android:clickable="true"
+                            android:focusable="true" />
+
+                        <TextView
+                            android:id="@+id/btnFilterDone"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="4dp"
+                            android:text="Đã làm xong"
+                            android:textSize="10sp"
+                            android:textColor="#90A4AE"
+                            android:background="@drawable/bg_input_field"
+                            android:clickable="true"
+                            android:focusable="true" />
+
+                        <TextView
+                            android:id="@+id/btnFilterBooked"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="4dp"
+                            android:text="Đã book ship"
+                            android:textSize="10sp"
+                            android:textColor="#90A4AE"
+                            android:background="@drawable/bg_input_field"
+                            android:clickable="true"
+                            android:focusable="true" />
+                    </LinearLayout>
+                </HorizontalScrollView>
 
                 <TextView
                     android:id="@+id/btnFilterUnmapped"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="6dp"
                     android:paddingHorizontal="8dp"
                     android:paddingVertical="4dp"
                     android:text="Chưa map"

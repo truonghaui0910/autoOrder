@@ -294,13 +294,20 @@ internal const val ZALO_OBSERVER_JS = """
     }
 
     function finish(nodes) {
-      var TARGET_SENDER = 'ĐH Tuấn ck Đù';
       var arr = [];
       var lastNonMeSender = '';
       var dbgTotal = nodes.length, dbgWithTs = 0, dbgInRange = 0, dbgFromMe = 0;
       var dbgReplies = 0, dbgRepMatched = 0, dbgNonMe = 0, dbgWithQuote = 0;
+      var dbgConfirmed = 0;
       var dbgSenders = {};
       var dbgFirstTs = NaN, dbgLastTs = NaN;
+      function hasReaction(node) {
+        if (!node) return false;
+        if (node.querySelector('.message-reaction-container.has-reacts')) return true;
+        if (node.querySelector('.reacts-list')) return true;
+        if (node.querySelector('[data-id$="_ReactList"]')) return true;
+        return false;
+      }
       function norm(s) {
         return (s || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
       }
@@ -340,7 +347,9 @@ internal const val ZALO_OBSERVER_JS = """
           if (!text) continue;
           dbgFromMe++;
           var displayText = multilineSnippet(text, 2000);
-          arr.push({ from: 'me', text: displayText, time: String(t), replies: [], _key: flatten(displayText) });
+          var confirmed = hasReaction(it);
+          if (confirmed) dbgConfirmed++;
+          arr.push({ from: 'me', text: displayText, time: String(t), replies: [], confirmed: confirmed, _key: flatten(displayText) });
         } else {
           dbgNonMe++;
           var nameEl = it.querySelector('.message-sender-name-content .truncate') ||
@@ -349,12 +358,22 @@ internal const val ZALO_OBSERVER_JS = """
           if (senderName) lastNonMeSender = senderName;
           else senderName = lastNonMeSender;
           if (senderName) dbgSenders[senderName] = (dbgSenders[senderName] || 0) + 1;
-          if (norm(senderName) !== norm(TARGET_SENDER)) continue;
+
+          // Only consider non-me bubbles that are explicit replies (quote-fragment present)
           var quoteEl = it.querySelector('.message-quote-fragment__description');
           if (!quoteEl) continue;
           dbgWithQuote++;
           var quoteKey = flatten(quoteEl.innerText || '');
           if (!quoteKey) continue;
+          var targetIdx = -1;
+          for (var k = arr.length - 1; k >= 0; k--) {
+            if (matchQuote(arr[k]._key, quoteKey)) {
+              targetIdx = k;
+              break;
+            }
+          }
+          if (targetIdx === -1) continue;
+
           var bodyEl = it.querySelector('[data-component=text-container]');
           var rText = '';
           if (bodyEl) {
@@ -378,29 +397,37 @@ internal const val ZALO_OBSERVER_JS = """
             }
           }
           if (!rText) {
-            if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
+            var card2 = extractContactCard(it);
+            if (card2) rText = card2;
+            else if (it.querySelector('.img-msg-v2') || it.querySelector('.photo-message-v2')) {
               rText = '[hình ảnh]';
             }
           }
           if (!rText) continue;
           dbgReplies++;
-          var matched = false;
+          dbgRepMatched++;
           var rDisplay = multilineSnippet(rText, 2000);
-          for (var k = arr.length - 1; k >= 0; k--) {
-            if (matchQuote(arr[k]._key, quoteKey)) {
-              arr[k].replies.push({ text: rDisplay, time: String(t) });
-              dbgRepMatched++;
-              matched = true;
-              break;
+          var reactionEmoji = '';
+          var reactionCount = 0;
+          var reactsList = it.querySelector('.reacts-list');
+          if (reactsList) {
+            var iconEl = reactsList.querySelector('.react-icon-list .react-icon span') ||
+                         reactsList.querySelector('.react-icon span');
+            if (iconEl) reactionEmoji = (iconEl.textContent || '').trim();
+            var countEl = reactsList.querySelector('.total-reacts');
+            if (countEl) {
+              var n = parseInt((countEl.textContent || '').trim(), 10);
+              if (!isNaN(n) && n > 0) reactionCount = n;
             }
+            if (reactionCount === 0 && reactionEmoji) reactionCount = 1;
           }
-          if (!matched) {
-            try {
-              AutoOrderBridge.onDump('checkout-nomatch', '',
-                'q=' + quoteKey.substring(0, 120) +
-                ' | r=' + rText.substring(0, 80), '');
-            } catch (e) {}
-          }
+          arr[targetIdx].replies.push({
+            sender: senderName || '',
+            text: rDisplay,
+            time: String(t),
+            reactionEmoji: reactionEmoji,
+            reactionCount: reactionCount
+          });
         }
       }
       try {
@@ -413,8 +440,8 @@ internal const val ZALO_OBSERVER_JS = """
           ' inRange=' + dbgInRange + ' fromMe=' + dbgFromMe +
           ' nonMe=' + dbgNonMe + ' withQuote=' + dbgWithQuote +
           ' replies=' + dbgReplies + ' matched=' + dbgRepMatched +
+          ' confirmed=' + dbgConfirmed +
           ' senders=[' + senderList.join(', ') + ']' +
-          ' target=[' + TARGET_SENDER + ']' +
           ' firstTs=' + dbgFirstTs + ' lastTs=' + dbgLastTs +
           ' dayStart=' + dayStartMs + ' dayEnd=' + dayEndMs, '');
       } catch (e) {}

@@ -26,9 +26,30 @@ import java.util.concurrent.Executors
 
 class ChatWebActivity : AppCompatActivity() {
 
+    private data class ReplyItem(
+        val sender: String,
+        val text: String,
+        val timeMs: Long,
+        val reactionEmoji: String,
+        val reactionCount: Int
+    )
+
     companion object {
         private const val TAG = "AutoOrder"
         private const val URL = "https://chat.zalo.me/"
+
+        private fun mapZaloEmoji(code: String): String = when (code.trim()) {
+            "/-strong" -> "👍"
+            "/-heart" -> "❤"
+            "/-weak" -> "👎"
+            ":>" -> "😄"
+            ":o" -> "😮"
+            ":-((" -> "😢"
+            ":'(" -> "😢"
+            ":-h" -> "🤝"
+            ":-bd" -> "👏"
+            else -> code
+        }
 
         @Volatile
         private var liveInstance: java.lang.ref.WeakReference<ChatWebActivity>? = null
@@ -820,6 +841,13 @@ class ChatWebActivity : AppCompatActivity() {
         val btnFilterUnmapped = view.findViewById<TextView>(R.id.btnFilterUnmapped)
         val btnFilterUnsaved = view.findViewById<TextView>(R.id.btnFilterUnsaved)
         val btnFilterUnpaid = view.findViewById<TextView>(R.id.btnFilterUnpaid)
+        val btnFilterConfirmed = view.findViewById<TextView>(R.id.btnFilterConfirmed)
+        val btnFilterUnconfirmed = view.findViewById<TextView>(R.id.btnFilterUnconfirmed)
+        val btnFilterFreeship = view.findViewById<TextView>(R.id.btnFilterFreeship)
+        val btnFilterDone = view.findViewById<TextView>(R.id.btnFilterDone)
+        val btnFilterBooked = view.findViewById<TextView>(R.id.btnFilterBooked)
+        val etSearch = view.findViewById<android.widget.EditText>(R.id.etSearch)
+        val filterScroll = view.findViewById<View>(R.id.filterScroll)
 
         val labels = chats.map { it.name.ifBlank { it.zaloId } }
         spChat.adapter = android.widget.ArrayAdapter(
@@ -860,10 +888,27 @@ class ChatWebActivity : AppCompatActivity() {
 
         var texts: List<String> = emptyList()
         var timesMs: List<Long> = emptyList()
-        var replies: List<List<Pair<String, Long>>> = emptyList()
+        var replies: List<List<ReplyItem>> = emptyList()
+        var confirmed: List<Boolean> = emptyList()
         var filterUnmapped = false
         var filterUnsaved = false
         var filterUnpaid = false
+        var filterConfirmed = false
+        var filterUnconfirmed = false
+        var filterFreeship = false
+        var filterDone = false
+        var filterBooked = false
+        var searchQuery = ""
+
+        fun normSender(s: String) = s.trim().lowercase(java.util.Locale.ROOT)
+        val freeshipSenders = runCatching { shopDb.getNamesByChatType("shipper") }
+            .getOrDefault(emptyList()).map { normSender(it) }.toSet()
+        val doneSenders = runCatching { shopDb.getNamesByChatType("bartender") }
+            .getOrDefault(emptyList()).map { normSender(it) }.toSet()
+        fun hasReplyFrom(list: List<ReplyItem>, names: Set<String>): Boolean =
+            list.any { normSender(it.sender) in names }
+        fun hasReactedReplyFrom(list: List<ReplyItem>, names: Set<String>): Boolean =
+            list.any { normSender(it.sender) in names && it.reactionEmoji.isNotEmpty() }
         val ordersByIndex = LinkedHashMap<Int, OrderExtractor.BatchOrder>()
         val loadingIndices = mutableSetOf<Int>()
         val analyzedIndices = mutableSetOf<Int>()
@@ -881,7 +926,7 @@ class ChatWebActivity : AppCompatActivity() {
                 pbSaveAll.visibility = View.VISIBLE
                 btnSaveAll.isEnabled = false
             } else {
-                btnSaveAll.text = "Lưu Đơn"
+                btnSaveAll.text = "3. Lưu đơn"
                 pbSaveAll.visibility = View.GONE
             }
         }
@@ -929,7 +974,11 @@ class ChatWebActivity : AppCompatActivity() {
         }
 
         fun visibleIndices(): List<Int> {
+            val q = searchQuery.trim().lowercase(java.util.Locale.ROOT)
             return texts.indices.filter { i ->
+                if (q.isNotEmpty()) {
+                    if (!texts[i].lowercase(java.util.Locale.ROOT).contains(q)) return@filter false
+                }
                 if (filterUnmapped) {
                     val ord = ordersByIndex[i]
                     if (ord != null && ord.matched) return@filter false
@@ -940,6 +989,22 @@ class ChatWebActivity : AppCompatActivity() {
                 if (filterUnpaid) {
                     if (savedOrderInfo[i]?.second == true) return@filter false
                 }
+                if (filterConfirmed) {
+                    if (confirmed.getOrNull(i) != true) return@filter false
+                }
+                if (filterUnconfirmed) {
+                    if (confirmed.getOrNull(i) == true) return@filter false
+                }
+                val rList = replies.getOrNull(i) ?: emptyList()
+                if (filterFreeship) {
+                    if (!hasReplyFrom(rList, freeshipSenders)) return@filter false
+                }
+                if (filterDone) {
+                    if (!hasReplyFrom(rList, doneSenders)) return@filter false
+                }
+                if (filterBooked) {
+                    if (!hasReactedReplyFrom(rList, doneSenders)) return@filter false
+                }
                 true
             }
         }
@@ -948,8 +1013,13 @@ class ChatWebActivity : AppCompatActivity() {
             styleFilterChip(btnFilterUnmapped, filterUnmapped)
             styleFilterChip(btnFilterUnsaved, filterUnsaved)
             styleFilterChip(btnFilterUnpaid, filterUnpaid)
+            styleFilterChip(btnFilterConfirmed, filterConfirmed)
+            styleFilterChip(btnFilterUnconfirmed, filterUnconfirmed)
+            styleFilterChip(btnFilterFreeship, filterFreeship)
+            styleFilterChip(btnFilterDone, filterDone)
+            styleFilterChip(btnFilterBooked, filterBooked)
             renderPairedRows(
-                messagesContainer, texts, timesMs, replies, visibleIndices(),
+                messagesContainer, texts, timesMs, replies, confirmed, visibleIndices(),
                 ordersByIndex, loadingIndices, analyzedIndices, savedIndices, savedOrderInfo,
                 analyzeOne, saveOne, pickCandidate, togglePaid
             )
@@ -1171,9 +1241,44 @@ class ChatWebActivity : AppCompatActivity() {
             filterUnpaid = !filterUnpaid
             rerender()
         }
+        btnFilterConfirmed.setOnClickListener {
+            filterConfirmed = !filterConfirmed
+            if (filterConfirmed) filterUnconfirmed = false
+            rerender()
+        }
+        btnFilterUnconfirmed.setOnClickListener {
+            filterUnconfirmed = !filterUnconfirmed
+            if (filterUnconfirmed) filterConfirmed = false
+            rerender()
+        }
+        btnFilterFreeship.setOnClickListener {
+            filterFreeship = !filterFreeship
+            rerender()
+        }
+        btnFilterDone.setOnClickListener {
+            filterDone = !filterDone
+            rerender()
+        }
+        btnFilterBooked.setOnClickListener {
+            filterBooked = !filterBooked
+            rerender()
+        }
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                searchQuery = s?.toString() ?: ""
+                rerender()
+            }
+        })
         styleFilterChip(btnFilterUnmapped, filterUnmapped)
         styleFilterChip(btnFilterUnsaved, filterUnsaved)
         styleFilterChip(btnFilterUnpaid, filterUnpaid)
+        styleFilterChip(btnFilterConfirmed, filterConfirmed)
+        styleFilterChip(btnFilterUnconfirmed, filterUnconfirmed)
+        styleFilterChip(btnFilterFreeship, filterFreeship)
+        styleFilterChip(btnFilterDone, filterDone)
+        styleFilterChip(btnFilterBooked, filterBooked)
 
         btnRead.setOnClickListener {
             val pos = spChat.selectedItemPosition
@@ -1196,7 +1301,7 @@ class ChatWebActivity : AppCompatActivity() {
             tvStatus.text = "Đang đọc tin nhắn của $currentChatName..."
             tvMessagesLabel.visibility = View.GONE
             messagesContainer.removeAllViews()
-            texts = emptyList(); timesMs = emptyList(); replies = emptyList()
+            texts = emptyList(); timesMs = emptyList(); replies = emptyList(); confirmed = emptyList()
             ordersByIndex.clear(); loadingIndices.clear(); analyzedIndices.clear()
             savedIndices.clear()
             btnRead.isEnabled = false
@@ -1206,7 +1311,7 @@ class ChatWebActivity : AppCompatActivity() {
 
             checkoutCallback = cb@{ animId, status, json ->
                 btnRead.isEnabled = true
-                btnRead.text = "Đọc Tin Nhắn"
+                btnRead.text = "1. Đọc tin nhắn"
                 pbRead.visibility = View.GONE
                 if (animId != zaloId) return@cb
                 when (status) {
@@ -1219,28 +1324,37 @@ class ChatWebActivity : AppCompatActivity() {
                         }
                         val newTexts = ArrayList<String>(arr.length())
                         val newTimesMs = ArrayList<Long>(arr.length())
-                        val newReplies = ArrayList<List<Pair<String, Long>>>(arr.length())
+                        val newReplies = ArrayList<List<ReplyItem>>(arr.length())
+                        val newConfirmed = ArrayList<Boolean>(arr.length())
                         for (k in 0 until arr.length()) {
                             val o = arr.optJSONObject(k) ?: continue
                             newTexts.add(o.optString("text"))
                             newTimesMs.add(o.optString("time").toLongOrNull() ?: 0L)
+                            newConfirmed.add(o.optBoolean("confirmed", false))
                             val rArr = o.optJSONArray("replies")
-                            val list = ArrayList<Pair<String, Long>>()
+                            val list = ArrayList<ReplyItem>()
                             if (rArr != null) {
                                 for (m in 0 until rArr.length()) {
                                     val ro = rArr.optJSONObject(m) ?: continue
+                                    val rs = ro.optString("sender")
                                     val rt = ro.optString("text")
                                     val rtm = ro.optString("time").toLongOrNull() ?: 0L
-                                    if (rt.isNotEmpty()) list.add(rt to rtm)
+                                    val re = ro.optString("reactionEmoji")
+                                    val rc = ro.optInt("reactionCount", 0)
+                                    if (rt.isNotEmpty()) list.add(ReplyItem(rs, rt, rtm, re, rc))
                                 }
                             }
+                            list.sortBy { it.timeMs }
                             newReplies.add(list)
                         }
                         texts = newTexts
                         timesMs = newTimesMs
                         replies = newReplies
+                        confirmed = newConfirmed
                         tvMessagesLabel.visibility = View.VISIBLE
                         tvMessagesLabel.text = "Tin nhắn  /  Đơn hàng AI"
+                        etSearch.visibility = View.VISIBLE
+                        filterScroll.visibility = View.VISIBLE
                         rerender()
                     }
                     "NOT_FOUND" -> {
@@ -1297,7 +1411,8 @@ class ChatWebActivity : AppCompatActivity() {
         container: android.widget.LinearLayout,
         texts: List<String>,
         timesMs: List<Long>,
-        replies: List<List<Pair<String, Long>>>,
+        replies: List<List<ReplyItem>>,
+        confirmed: List<Boolean>,
         visibleIndices: List<Int>,
         ordersByIndex: Map<Int, OrderExtractor.BatchOrder>,
         loadingIndices: Set<Int>,
@@ -1319,9 +1434,13 @@ class ChatWebActivity : AppCompatActivity() {
         val marginV = (6 * density).toInt()
         val gap = (8 * density).toInt()
 
+        container.clipChildren = false
+        container.clipToPadding = false
         for (i in visibleIndices) {
             val row = android.widget.LinearLayout(this)
             row.orientation = android.widget.LinearLayout.HORIZONTAL
+            row.clipChildren = false
+            row.clipToPadding = false
             row.weightSum = 7f
             val rowLp = android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1367,9 +1486,11 @@ class ChatWebActivity : AppCompatActivity() {
                 leftCol.addView(tvTime)
             }
 
-            // MIDDLE: replies from target sender quoting this me-message (weight 1/7 = 1/3 of leftCol)
+            // MIDDLE: replies quoting this me-message (weight 1/7 = 1/3 of leftCol)
             val replyCol = android.widget.LinearLayout(this)
             replyCol.orientation = android.widget.LinearLayout.VERTICAL
+            replyCol.clipChildren = false
+            replyCol.clipToPadding = false
             val replyLp = android.widget.LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
             )
@@ -1377,26 +1498,100 @@ class ChatWebActivity : AppCompatActivity() {
             replyLp.marginEnd = gap / 2
             replyCol.layoutParams = replyLp
 
+            if (confirmed.getOrNull(i) == true) {
+                val tvConfirm = TextView(this)
+                tvConfirm.text = "✓ Đã xác nhận"
+                tvConfirm.textSize = 11f
+                tvConfirm.setTextColor(0xFF2E7D32.toInt())
+                tvConfirm.setTypeface(tvConfirm.typeface, android.graphics.Typeface.BOLD)
+                tvConfirm.setPadding(padH, padV, padH, padV)
+                tvConfirm.background = androidx.core.content.ContextCompat.getDrawable(
+                    this, R.drawable.bg_input_field
+                )
+                val cLp = android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                cLp.bottomMargin = (4 * density).toInt()
+                tvConfirm.layoutParams = cLp
+                replyCol.addView(tvConfirm)
+            }
+
             val rList = replies.getOrNull(i) ?: emptyList()
-            for ((rt, rtm) in rList) {
+            for (rep in rList) {
+                if (rep.sender.isNotBlank()) {
+                    val tvSender = TextView(this)
+                    tvSender.text = rep.sender
+                    tvSender.textSize = 9f
+                    tvSender.setTextColor(0xFF1E88E5.toInt())
+                    tvSender.setTypeface(tvSender.typeface, android.graphics.Typeface.BOLD)
+                    val sLp = android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                    sLp.topMargin = (2 * density).toInt()
+                    tvSender.layoutParams = sLp
+                    replyCol.addView(tvSender)
+                }
+
+                val bubbleFrame = android.widget.FrameLayout(this)
+                bubbleFrame.clipChildren = false
+                bubbleFrame.clipToPadding = false
+                val bubbleFrameLp = android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                bubbleFrameLp.bottomMargin = (10 * density).toInt()
+                bubbleFrame.layoutParams = bubbleFrameLp
+
                 val rb = TextView(this)
-                rb.text = rt
-                rb.setPadding(padH, padV, padH, padV)
+                rb.text = rep.text
+                val extraBottom = if (rep.reactionEmoji.isNotEmpty()) (10 * density).toInt() else 0
+                rb.setPadding(padH, padV, padH, padV + extraBottom)
                 rb.textSize = 11f
                 rb.setTextColor(0xFF263238.toInt())
                 rb.background = androidx.core.content.ContextCompat.getDrawable(
                     this, R.drawable.bg_input_field
                 )
-                val rbLp = android.widget.LinearLayout.LayoutParams(
+                bubbleFrame.addView(rb, android.widget.FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                rbLp.bottomMargin = (2 * density).toInt()
-                rb.layoutParams = rbLp
-                replyCol.addView(rb)
-                if (rtm > 0L) {
+                ))
+
+                if (rep.reactionEmoji.isNotEmpty()) {
+                    val emoji = mapZaloEmoji(rep.reactionEmoji)
+                    val countText = if (rep.reactionCount > 1) " ${rep.reactionCount}" else ""
+                    val tvReact = TextView(this)
+                    tvReact.text = "$emoji$countText"
+                    tvReact.textSize = 10f
+                    tvReact.setTextColor(0xFF455A64.toInt())
+                    tvReact.setPadding(
+                        (6 * density).toInt(), (1 * density).toInt(),
+                        (6 * density).toInt(), (1 * density).toInt()
+                    )
+                    val pillBg = android.graphics.drawable.GradientDrawable()
+                    pillBg.shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    pillBg.cornerRadius = 16 * density
+                    pillBg.setColor(0xFFFFFFFF.toInt())
+                    pillBg.setStroke((1 * density).toInt(), 0xFFE0E0E0.toInt())
+                    tvReact.background = pillBg
+                    tvReact.elevation = 6 * density
+                    tvReact.translationZ = 6 * density
+                    val rLp = android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.Gravity.BOTTOM or android.view.Gravity.END
+                    )
+                    rLp.rightMargin = (6 * density).toInt()
+                    rLp.bottomMargin = (-8 * density).toInt()
+                    tvReact.layoutParams = rLp
+                    bubbleFrame.addView(tvReact)
+                }
+                replyCol.addView(bubbleFrame)
+
+                if (rep.timeMs > 0L) {
                     val tvT = TextView(this)
-                    tvT.text = timeFmt.format(java.util.Date(rtm))
+                    tvT.text = timeFmt.format(java.util.Date(rep.timeMs))
                     tvT.textSize = 9f
                     tvT.setTextColor(0xFF90A4AE.toInt())
                     val ttLp = android.widget.LinearLayout.LayoutParams(

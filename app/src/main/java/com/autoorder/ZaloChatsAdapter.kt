@@ -66,6 +66,8 @@ class ZaloChatsAdapter(
                 when (c.chatType) {
                     "customer" -> R.drawable.bg_chip_customer
                     "order" -> R.drawable.bg_chip_order
+                    "shipper" -> R.drawable.bg_chip_shipper
+                    "bartender" -> R.drawable.bg_chip_bartender
                     else -> R.drawable.bg_chip_normal
                 }
             )

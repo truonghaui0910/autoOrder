@@ -483,6 +483,17 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         writableDatabase.delete(T_CHATS, "id = ?", arrayOf(id.toString()))
     }
 
+    fun getNamesByChatType(chatType: String): List<String> {
+        val out = ArrayList<String>()
+        readableDatabase.rawQuery(
+            "SELECT DISTINCT name FROM $T_CHATS WHERE chat_type = ? AND status = 'active' AND name IS NOT NULL AND name <> ''",
+            arrayOf(chatType)
+        ).use { c ->
+            while (c.moveToNext()) out.add(c.getString(0) ?: "")
+        }
+        return out.filter { it.isNotBlank() }
+    }
+
     fun countZaloChats(): Int {
         readableDatabase.rawQuery("SELECT COUNT(*) FROM $T_CHATS", null).use {
             return if (it.moveToFirst()) it.getInt(0) else 0
