@@ -38,6 +38,101 @@ object OrderExtractor {
     private const val ENDPOINT = "https://api.anthropic.com/v1/messages"
     private const val ANTHROPIC_VERSION = "2023-06-01"
 
+    private val OPENROUTER_KEY: String = BuildConfig.OPENROUTER_API_KEY
+    private const val OPENROUTER_MODEL = "openai/gpt-5-mini"
+    private const val OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+
+    private data class AiResp(val raw: String, val stopReason: String)
+
+    private fun aiComplete(sys: String, userMsg: String, maxTokens: Int): AiResp {
+        if (OPENROUTER_KEY.isNotBlank()) {
+            try {
+                return callOpenRouter(sys, userMsg, maxTokens)
+            } catch (e: Exception) {
+                Log.w(TAG, "OpenRouter failed, fallback to Anthropic: ${e.message}")
+            }
+        }
+        return callAnthropic(sys, userMsg, maxTokens)
+    }
+
+    private fun callOpenRouter(sys: String, userMsg: String, maxTokens: Int): AiResp {
+        val body = JSONObject().apply {
+            put("model", OPENROUTER_MODEL)
+            put("max_tokens", maxTokens)
+            put("temperature", 0)
+            put(
+                "messages", JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", sys))
+                    .put(JSONObject().put("role", "user").put("content", userMsg))
+            )
+            put("response_format", JSONObject().put("type", "json_object"))
+        }.toString()
+        val url = URL(OPENROUTER_ENDPOINT)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 30000
+            readTimeout = 120000
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Authorization", "Bearer $OPENROUTER_KEY")
+            setRequestProperty("HTTP-Referer", "https://github.com/autoorder")
+            setRequestProperty("X-Title", "autoOrder")
+        }
+        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val resp = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        if (code !in 200..299) throw RuntimeException("OpenRouter HTTP $code: ${resp.take(500)}")
+        val root = JSONObject(resp)
+        val choices = root.optJSONArray("choices")
+            ?: throw RuntimeException("OpenRouter: missing choices in response")
+        if (choices.length() == 0) throw RuntimeException("OpenRouter: empty choices")
+        val choice = choices.getJSONObject(0)
+        val content = choice.getJSONObject("message").optString("content")
+        if (content.isBlank()) throw RuntimeException("OpenRouter: empty content")
+        val finish = choice.optString("finish_reason")
+        return AiResp(content, finish)
+    }
+
+    private fun callAnthropic(sys: String, userMsg: String, maxTokens: Int): AiResp {
+        if (ANTHROPIC_KEY.isBlank()) throw RuntimeException("Chưa cấu hình ANTHROPIC_API_KEY.")
+        val body = JSONObject().apply {
+            put("model", MODEL)
+            put("max_tokens", maxTokens)
+            put("temperature", 0)
+            put("system", sys)
+            put(
+                "messages", JSONArray()
+                    .put(JSONObject().put("role", "user").put("content", userMsg))
+                    .put(JSONObject().put("role", "assistant").put("content", "{"))
+            )
+        }.toString()
+        val url = URL(ENDPOINT)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 30000
+            readTimeout = 120000
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("x-api-key", ANTHROPIC_KEY)
+            setRequestProperty("anthropic-version", ANTHROPIC_VERSION)
+        }
+        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val resp = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        if (code !in 200..299) throw RuntimeException("Anthropic HTTP $code: ${resp.take(500)}")
+        val root = JSONObject(resp)
+        val stopReason = root.optString("stop_reason")
+        val contentArr = root.getJSONArray("content")
+        val sb = StringBuilder()
+        for (i in 0 until contentArr.length()) {
+            val block = contentArr.getJSONObject(i)
+            if (block.optString("type") == "text") sb.append(block.optString("text"))
+        }
+        return AiResp("{" + sb.toString(), stopReason)
+    }
+
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val priceFormat = NumberFormat.getInstance(Locale("vi", "VN"))
@@ -127,8 +222,8 @@ object OrderExtractor {
         onProgress: ((List<BatchOrder>, Int, Int) -> Unit)? = null,
         onResult: (Result<List<BatchOrder>>) -> Unit
     ) {
-        if (ANTHROPIC_KEY.isBlank()) {
-            onResult(Result.failure(RuntimeException("Chưa cấu hình ANTHROPIC_API_KEY trong local.properties.")))
+        if (ANTHROPIC_KEY.isBlank() && OPENROUTER_KEY.isBlank()) {
+            onResult(Result.failure(RuntimeException("Chưa cấu hình OPENROUTER_KEY / ANTHROPIC_API_KEY.")))
             return
         }
         io.execute {
@@ -248,44 +343,7 @@ object OrderExtractor {
 
         val userMsg = "Danh sách tin nhắn:\n$messagesJson"
 
-        val body = JSONObject().apply {
-            put("model", MODEL)
-            put("max_tokens", 16000)
-            put("temperature", 0)
-            put("system", sys)
-            put(
-                "messages", JSONArray()
-                    .put(JSONObject().put("role", "user").put("content", userMsg))
-                    .put(JSONObject().put("role", "assistant").put("content", "{"))
-            )
-        }.toString()
-
-        val url = URL(ENDPOINT)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            doOutput = true
-            connectTimeout = 30000
-            readTimeout = 120000
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("x-api-key", ANTHROPIC_KEY)
-            setRequestProperty("anthropic-version", ANTHROPIC_VERSION)
-        }
-        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
-
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val resp = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        if (code !in 200..299) throw RuntimeException("HTTP $code: ${resp.take(500)}")
-
-        val root = JSONObject(resp)
-        val stopReason = root.optString("stop_reason")
-        val contentArr = root.getJSONArray("content")
-        val sb = StringBuilder()
-        for (i in 0 until contentArr.length()) {
-            val block = contentArr.getJSONObject(i)
-            if (block.optString("type") == "text") sb.append(block.optString("text"))
-        }
-        val raw = "{" + sb.toString()
+        val (raw, stopReason) = aiComplete(sys, userMsg, 16000)
         val jsonText = extractJsonObject(raw) ?: raw
         val parsed = runCatching { JSONObject(jsonText) }.getOrNull()
             ?: salvageBatchJson(raw, stopReason)
@@ -428,11 +486,11 @@ object OrderExtractor {
     }
 
     fun extractAndShow(ctx: Context, animId: String, peerName: String, avatarUrl: String, messagesJson: String) {
-        if (ANTHROPIC_KEY.isBlank()) {
+        if (ANTHROPIC_KEY.isBlank() && OPENROUTER_KEY.isBlank()) {
             main.post {
                 AlertDialog.Builder(ctx)
                     .setTitle("Thiếu API key")
-                    .setMessage("Chưa cấu hình ANTHROPIC_API_KEY trong local.properties.")
+                    .setMessage("Chưa cấu hình OPENROUTER_KEY / ANTHROPIC_API_KEY.")
                     .setPositiveButton("OK", null)
                     .show()
             }
@@ -567,43 +625,7 @@ object OrderExtractor {
 
         val userMsg = "Tên peer: $peerName\n\nHội thoại:\n$transcript"
 
-        val body = JSONObject().apply {
-            put("model", MODEL)
-            put("max_tokens", 1500)
-            put("temperature", 0)
-            put("system", sys)
-            put(
-                "messages", JSONArray()
-                    .put(JSONObject().put("role", "user").put("content", userMsg))
-                    .put(JSONObject().put("role", "assistant").put("content", "{"))
-            )
-        }.toString()
-
-        val url = URL(ENDPOINT)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            doOutput = true
-            connectTimeout = 30000
-            readTimeout = 60000
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("x-api-key", ANTHROPIC_KEY)
-            setRequestProperty("anthropic-version", ANTHROPIC_VERSION)
-        }
-        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
-
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val resp = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        if (code !in 200..299) throw RuntimeException("HTTP $code: ${resp.take(500)}")
-
-        val root = JSONObject(resp)
-        val contentArr = root.getJSONArray("content")
-        val sb = StringBuilder()
-        for (i in 0 until contentArr.length()) {
-            val block = contentArr.getJSONObject(i)
-            if (block.optString("type") == "text") sb.append(block.optString("text"))
-        }
-        val raw = "{" + sb.toString()
+        val (raw, _) = aiComplete(sys, userMsg, 1500)
         val jsonText = extractJsonObject(raw) ?: raw
         val parsed = JSONObject(jsonText)
 
