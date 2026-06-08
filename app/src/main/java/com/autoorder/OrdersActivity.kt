@@ -1119,7 +1119,7 @@ class OrdersActivity : AppCompatActivity() {
             val nf = NumberFormat.getInstance(Locale("vi", "VN"))
             return buildString {
                 append("Tên: ").append(o.senderName).append('\n')
-                if (o.note.isNotBlank()) append("Ghi chú: ").append(o.note.trim()).append('\n')
+                if (o.note.isNotBlank()) append(o.note.trim()).append('\n')
                 append('\n')
                 items.forEach { it ->
                     val q = if (it.quantity == it.quantity.toLong().toDouble())

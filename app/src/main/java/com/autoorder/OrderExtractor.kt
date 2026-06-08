@@ -1610,7 +1610,7 @@ object OrderExtractor {
     ): String = buildString {
         append("Tên: ").append(name).append("\n\n")
         if (note.isNotBlank()) {
-            append("Ghi chú: ").append(note.trim()).append("\n\n")
+            append(note.trim()).append("\n\n")
         }
         append(itemsText).append("\n\n")
         append("SĐT: ").append(phone).append('\n')
