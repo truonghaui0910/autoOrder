@@ -33,33 +33,85 @@ import java.util.concurrent.Executors
 object OrderExtractor {
 
     private const val TAG = "AutoOrder"
-    private val ANTHROPIC_KEY: String = BuildConfig.ANTHROPIC_API_KEY
-    private const val MODEL = "claude-haiku-4-5-20251001"
-    private const val ENDPOINT = "https://api.anthropic.com/v1/messages"
+    private const val ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
     private const val ANTHROPIC_VERSION = "2023-06-01"
-
-    private val OPENROUTER_KEY: String = BuildConfig.OPENROUTER_API_KEY
-    private const val OPENROUTER_MODEL = "openai/gpt-5-mini"
     private const val OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    private const val OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 
     private data class AiResp(val raw: String, val stopReason: String)
 
-    private fun aiComplete(sys: String, userMsg: String, maxTokens: Int): AiResp {
-        if (OPENROUTER_KEY.isNotBlank()) {
-            try {
-                return callOpenRouter(sys, userMsg, maxTokens)
-            } catch (e: Exception) {
-                Log.w(TAG, "OpenRouter failed, fallback to Anthropic: ${e.message}")
-            }
+    private fun resolveApiKey(ctx: Context, provider: String): String {
+        val user = AppPrefs.getAiKey(ctx, provider)
+        if (user.isNotBlank()) return user
+        return when (provider) {
+            AppPrefs.AI_CLAUDE -> BuildConfig.ANTHROPIC_API_KEY
+            AppPrefs.AI_OPENROUTER -> BuildConfig.OPENROUTER_API_KEY
+            AppPrefs.AI_OPENAI -> BuildConfig.OPENAI_API_KEY
+            else -> ""
         }
-        return callAnthropic(sys, userMsg, maxTokens)
     }
 
-    private fun callOpenRouter(sys: String, userMsg: String, maxTokens: Int): AiResp {
+    fun hasAnyConfiguredKey(ctx: Context): Boolean {
+        val p = AppPrefs.getAiProvider(ctx)
+        return resolveApiKey(ctx, p).isNotBlank()
+    }
+
+    private fun aiComplete(ctx: Context, sys: String, userMsg: String, maxTokens: Int): AiResp {
+        val provider = AppPrefs.getAiProvider(ctx)
+        val model = AppPrefs.getAiModel(ctx, provider)
+        val apiKey = resolveApiKey(ctx, provider)
+        if (apiKey.isBlank()) {
+            throw RuntimeException("Chưa cấu hình API key cho ${AppPrefs.providerLabel(provider)} (vào Cài đặt → AI).")
+        }
+        return when (provider) {
+            AppPrefs.AI_OPENROUTER -> callOpenAiCompat(
+                endpoint = OPENROUTER_ENDPOINT,
+                apiKey = apiKey,
+                model = model,
+                extraHeaders = mapOf(
+                    "HTTP-Referer" to "https://github.com/autoorder",
+                    "X-Title" to "autoOrder"
+                ),
+                sys = sys, userMsg = userMsg, maxTokens = maxTokens,
+                providerLabel = "OpenRouter",
+                useCompletionTokens = false,
+                includeTemperature = true,
+                reasoningEffort = if (model.contains("gpt-5") || model.startsWith("openai/o")) "minimal" else null
+            )
+            AppPrefs.AI_OPENAI -> callOpenAiCompat(
+                endpoint = OPENAI_ENDPOINT,
+                apiKey = apiKey,
+                model = model,
+                extraHeaders = emptyMap(),
+                sys = sys, userMsg = userMsg, maxTokens = maxTokens,
+                providerLabel = "OpenAI",
+                useCompletionTokens = true,
+                includeTemperature = false,
+                reasoningEffort = "minimal"
+            )
+            else -> callAnthropic(apiKey, model, sys, userMsg, maxTokens)
+        }
+    }
+
+    private fun callOpenAiCompat(
+        endpoint: String,
+        apiKey: String,
+        model: String,
+        extraHeaders: Map<String, String>,
+        sys: String,
+        userMsg: String,
+        maxTokens: Int,
+        providerLabel: String,
+        useCompletionTokens: Boolean,
+        includeTemperature: Boolean,
+        reasoningEffort: String? = null
+    ): AiResp {
         val body = JSONObject().apply {
-            put("model", OPENROUTER_MODEL)
-            put("max_tokens", maxTokens)
-            put("temperature", 0)
+            put("model", model)
+            if (useCompletionTokens) put("max_completion_tokens", maxTokens)
+            else put("max_tokens", maxTokens)
+            if (includeTemperature) put("temperature", 0)
+            if (!reasoningEffort.isNullOrBlank()) put("reasoning_effort", reasoningEffort)
             put(
                 "messages", JSONArray()
                     .put(JSONObject().put("role", "system").put("content", sys))
@@ -67,37 +119,40 @@ object OrderExtractor {
             )
             put("response_format", JSONObject().put("type", "json_object"))
         }.toString()
-        val url = URL(OPENROUTER_ENDPOINT)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
+        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
             connectTimeout = 30000
             readTimeout = 120000
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("Authorization", "Bearer $OPENROUTER_KEY")
-            setRequestProperty("HTTP-Referer", "https://github.com/autoorder")
-            setRequestProperty("X-Title", "autoOrder")
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
         }
         OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
         val code = conn.responseCode
         val stream = if (code in 200..299) conn.inputStream else conn.errorStream
         val resp = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        if (code !in 200..299) throw RuntimeException("OpenRouter HTTP $code: ${resp.take(500)}")
+        if (code !in 200..299) throw RuntimeException("$providerLabel HTTP $code: ${resp.take(500)}")
         val root = JSONObject(resp)
         val choices = root.optJSONArray("choices")
-            ?: throw RuntimeException("OpenRouter: missing choices in response")
-        if (choices.length() == 0) throw RuntimeException("OpenRouter: empty choices")
+            ?: throw RuntimeException("$providerLabel: missing choices in response")
+        if (choices.length() == 0) throw RuntimeException("$providerLabel: empty choices")
         val choice = choices.getJSONObject(0)
         val content = choice.getJSONObject("message").optString("content")
-        if (content.isBlank()) throw RuntimeException("OpenRouter: empty content")
+        if (content.isBlank()) throw RuntimeException("$providerLabel: empty content")
         val finish = choice.optString("finish_reason")
         return AiResp(content, finish)
     }
 
-    private fun callAnthropic(sys: String, userMsg: String, maxTokens: Int): AiResp {
-        if (ANTHROPIC_KEY.isBlank()) throw RuntimeException("Chưa cấu hình ANTHROPIC_API_KEY.")
+    private fun callAnthropic(
+        apiKey: String,
+        model: String,
+        sys: String,
+        userMsg: String,
+        maxTokens: Int
+    ): AiResp {
         val body = JSONObject().apply {
-            put("model", MODEL)
+            put("model", model)
             put("max_tokens", maxTokens)
             put("temperature", 0)
             put("system", sys)
@@ -107,14 +162,13 @@ object OrderExtractor {
                     .put(JSONObject().put("role", "assistant").put("content", "{"))
             )
         }.toString()
-        val url = URL(ENDPOINT)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
+        val conn = (URL(ANTHROPIC_ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
             connectTimeout = 30000
             readTimeout = 120000
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("x-api-key", ANTHROPIC_KEY)
+            setRequestProperty("x-api-key", apiKey)
             setRequestProperty("anthropic-version", ANTHROPIC_VERSION)
         }
         OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
@@ -222,8 +276,9 @@ object OrderExtractor {
         onProgress: ((List<BatchOrder>, Int, Int) -> Unit)? = null,
         onResult: (Result<List<BatchOrder>>) -> Unit
     ) {
-        if (ANTHROPIC_KEY.isBlank() && OPENROUTER_KEY.isBlank()) {
-            onResult(Result.failure(RuntimeException("Chưa cấu hình OPENROUTER_KEY / ANTHROPIC_API_KEY.")))
+        if (!hasAnyConfiguredKey(ctx)) {
+            val p = AppPrefs.providerLabel(AppPrefs.getAiProvider(ctx))
+            onResult(Result.failure(RuntimeException("Chưa cấu hình API key cho $p (vào Cài đặt → AI).")))
             return
         }
         io.execute {
@@ -245,7 +300,7 @@ object OrderExtractor {
                         chunk.put(inputArr.getJSONObject(j))
                     }
                     chunkIdx++
-                    val raw = callClaudeBatch(chunk.toString(), products, productsById)
+                    val raw = callClaudeBatch(ctx, chunk.toString(), products, productsById)
                     val withZalo = raw.map { o ->
                         val byName = msgDb.getZaloChatsByName(o.customerName)
                         val matches = if (byName.isEmpty() && o.phone.isNotBlank())
@@ -279,6 +334,7 @@ object OrderExtractor {
     }
 
     private fun callClaudeBatch(
+        ctx: Context,
         messagesJson: String,
         products: List<Product>,
         productsById: Map<Long, Product>
@@ -343,7 +399,7 @@ object OrderExtractor {
 
         val userMsg = "Danh sách tin nhắn:\n$messagesJson"
 
-        val (raw, stopReason) = aiComplete(sys, userMsg, 16000)
+        val (raw, stopReason) = aiComplete(ctx, sys, userMsg, 16000)
         val jsonText = extractJsonObject(raw) ?: raw
         val parsed = runCatching { JSONObject(jsonText) }.getOrNull()
             ?: salvageBatchJson(raw, stopReason)
@@ -486,11 +542,12 @@ object OrderExtractor {
     }
 
     fun extractAndShow(ctx: Context, animId: String, peerName: String, avatarUrl: String, messagesJson: String) {
-        if (ANTHROPIC_KEY.isBlank() && OPENROUTER_KEY.isBlank()) {
+        if (!hasAnyConfiguredKey(ctx)) {
+            val p = AppPrefs.providerLabel(AppPrefs.getAiProvider(ctx))
             main.post {
                 AlertDialog.Builder(ctx)
                     .setTitle("Thiếu API key")
-                    .setMessage("Chưa cấu hình OPENROUTER_KEY / ANTHROPIC_API_KEY.")
+                    .setMessage("Chưa cấu hình API key cho $p. Vào Cài đặt → AI để nhập.")
                     .setPositiveButton("OK", null)
                     .show()
             }
@@ -536,17 +593,21 @@ object OrderExtractor {
             d
         }
         io.execute {
-            val result = runCatching { callClaude(transcript, peerName, products, productsById) }
+            val result = runCatching { callClaude(ctx, transcript, peerName, products, productsById) }
             main.post {
                 runCatching { loading.dismiss() }
                 result.onSuccess { showPopup(ctx, animId, peerName, avatarUrl, it) }
                     .onFailure {
-                        Log.e(TAG, "Claude fail", it)
-                        AlertDialog.Builder(ctx)
-                            .setTitle("Lỗi gọi Claude")
-                            .setMessage(it.message ?: "Unknown")
-                            .setPositiveButton("OK", null)
-                            .show()
+                        Log.e(TAG, "AI call fail", it)
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "AI lỗi: ${it.message ?: "Unknown"}. Vui lòng nhập sản phẩm bằng tay.",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        showPopup(
+                            ctx, animId, peerName, avatarUrl,
+                            ParsedOrder(senderName = peerName)
+                        )
                     }
             }
         }
@@ -567,6 +628,7 @@ object OrderExtractor {
     }
 
     private fun callClaude(
+        ctx: Context,
         transcript: String,
         peerName: String,
         products: List<Product>,
@@ -625,7 +687,7 @@ object OrderExtractor {
 
         val userMsg = "Tên peer: $peerName\n\nHội thoại:\n$transcript"
 
-        val (raw, _) = aiComplete(sys, userMsg, 1500)
+        val (raw, _) = aiComplete(ctx, sys, userMsg, 1500)
         val jsonText = extractJsonObject(raw) ?: raw
         val parsed = JSONObject(jsonText)
 

@@ -36,6 +36,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var txtBankSummary: TextView
     private lateinit var txtZaloChatsCount: TextView
     private lateinit var txtAutoSync: TextView
+    private lateinit var txtAiSummary: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,9 +47,11 @@ class SettingsActivity : AppCompatActivity() {
         txtBankSummary = findViewById(R.id.txtBankSummary)
         txtZaloChatsCount = findViewById(R.id.txtZaloChatsCount)
         txtAutoSync = findViewById(R.id.txtAutoSync)
+        txtAiSummary = findViewById(R.id.txtAiSummary)
         refreshSummaries()
 
         findViewById<View>(R.id.rowAutoSync).setOnClickListener { showAutoSyncDialog() }
+        findViewById<View>(R.id.rowAi).setOnClickListener { showAiDialog() }
 
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<View>(R.id.rowViewMode).setOnClickListener { showViewModeDialog() }
@@ -108,6 +111,10 @@ class SettingsActivity : AppCompatActivity() {
         val autoEnabled = AppPrefs.isAutoSyncEnabled(this)
         val autoMin = AppPrefs.getAutoSyncIntervalMin(this)
         txtAutoSync.text = if (autoEnabled) "Bật · mỗi $autoMin phút" else "Tắt"
+
+        val provider = AppPrefs.getAiProvider(this)
+        val model = AppPrefs.getAiModel(this, provider)
+        txtAiSummary.text = "${AppPrefs.providerLabel(provider)} · $model"
 
         txtBankSummary.text = when {
             accounts.isEmpty() -> "Chưa có — đang dùng tài khoản mặc định"
@@ -205,6 +212,119 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         private const val REQ_EXPORT_DB = 4011
+    }
+
+    private fun showAiDialog() {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+        }
+
+        val curProvider = AppPrefs.getAiProvider(this)
+        val rg = android.widget.RadioGroup(this).apply { orientation = android.widget.RadioGroup.HORIZONTAL }
+        val providers = listOf(
+            AppPrefs.AI_CLAUDE to "Claude",
+            AppPrefs.AI_OPENROUTER to "OpenRouter",
+            AppPrefs.AI_OPENAI to "OpenAI"
+        )
+        val rbMap = HashMap<String, android.widget.RadioButton>()
+        val idToProvider = HashMap<Int, String>()
+        providers.forEach { (pid, label) ->
+            val rb = android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = label
+                val lp = android.widget.RadioGroup.LayoutParams(
+                    android.widget.RadioGroup.LayoutParams.WRAP_CONTENT,
+                    android.widget.RadioGroup.LayoutParams.WRAP_CONTENT
+                ).apply { rightMargin = (12 * density).toInt() }
+                layoutParams = lp
+            }
+            rbMap[pid] = rb
+            idToProvider[rb.id] = pid
+            rg.addView(rb)
+        }
+        rbMap[curProvider]?.let { rg.check(it.id) }
+        container.addView(TextView(this).apply {
+            text = "Provider"
+            textSize = 13f
+            setTextColor(0xFF455A64.toInt())
+        })
+        container.addView(rg)
+
+        val tvModelLabel = TextView(this).apply {
+            text = "Model"
+            textSize = 13f
+            setTextColor(0xFF455A64.toInt())
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        }
+        val etModel = EditText(this).apply { setSingleLine(true) }
+        val tvKeyLabel = TextView(this).apply {
+            text = "API key"
+            textSize = 13f
+            setTextColor(0xFF455A64.toInt())
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        }
+        val etKey = EditText(this).apply {
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val tvHint = TextView(this).apply {
+            textSize = 11f
+            setTextColor(0xFF78909C.toInt())
+            setPadding(0, (4 * density).toInt(), 0, 0)
+        }
+
+        container.addView(tvModelLabel)
+        container.addView(etModel)
+        container.addView(tvKeyLabel)
+        container.addView(etKey)
+        container.addView(tvHint)
+
+        var shown = curProvider
+
+        fun loadFor(provider: String) {
+            etModel.hint = AppPrefs.defaultModelOf(provider)
+            etModel.setText(AppPrefs.defaultModelOf(provider))
+            etKey.setText(AppPrefs.getAiKey(this, provider))
+            tvHint.text = "Để trống model để dùng mặc định. Key trống sẽ dùng key build-in (nếu có)."
+        }
+
+        fun saveCurrentFields() {
+            val m = etModel.text.toString().trim()
+            AppPrefs.setAiModel(this, shown,
+                if (m.isBlank()) AppPrefs.defaultModelOf(shown) else m)
+            AppPrefs.setAiKey(this, shown, etKey.text.toString())
+        }
+
+        loadFor(curProvider)
+
+        rg.setOnCheckedChangeListener { _, checkedId ->
+            val next = idToProvider[checkedId] ?: return@setOnCheckedChangeListener
+            if (next == shown) return@setOnCheckedChangeListener
+            saveCurrentFields()
+            shown = next
+            loadFor(next)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Cấu hình AI")
+            .setView(container)
+            .setNegativeButton("Huỷ", null)
+            .setPositiveButton("Lưu") { _, _ ->
+                saveCurrentFields()
+                AppPrefs.setAiProvider(this, shown)
+                refreshSummaries()
+                Toast.makeText(
+                    this,
+                    "Đã lưu: ${AppPrefs.providerLabel(shown)} · ${AppPrefs.getAiModel(this, shown)}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .show()
     }
 
     private fun showAutoSyncDialog() {

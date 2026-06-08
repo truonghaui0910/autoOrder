@@ -645,9 +645,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         val q = search?.trim().orEmpty()
         if (q.isNotEmpty()) {
             if (where.isNotEmpty()) where.append(" AND ")
-            where.append("(LOWER(sender_name) LIKE ? OR LOWER(conv_name) LIKE ? OR LOWER(phone) LIKE ? OR LOWER(address) LIKE ? OR LOWER(COALESCE(zalo_id,'')) LIKE ?)")
+            where.append("(LOWER(sender_name) LIKE ? OR LOWER(conv_name) LIKE ? OR LOWER(phone) LIKE ? OR LOWER(address) LIKE ? OR LOWER(COALESCE(zalo_id,'')) LIKE ? OR LOWER(COALESCE(items_text,'')) LIKE ?)")
             val like = "%" + q.lowercase() + "%"
-            repeat(5) { args.add(like) }
+            repeat(6) { args.add(like) }
         }
         val sql = StringBuilder(
             "SELECT id, created_at, order_date, conv_name, sender_name, phone, address, " +
@@ -701,9 +701,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         val q = search?.trim().orEmpty()
         if (q.isNotEmpty()) {
             if (where.isNotEmpty()) where.append(" AND ")
-            where.append("(LOWER(o.sender_name) LIKE ? OR LOWER(o.conv_name) LIKE ? OR LOWER(o.phone) LIKE ? OR LOWER(o.address) LIKE ? OR LOWER(COALESCE(o.zalo_id,'')) LIKE ?)")
+            where.append("(LOWER(o.sender_name) LIKE ? OR LOWER(o.conv_name) LIKE ? OR LOWER(o.phone) LIKE ? OR LOWER(o.address) LIKE ? OR LOWER(COALESCE(o.zalo_id,'')) LIKE ? OR LOWER(COALESCE(o.items_text,'')) LIKE ?)")
             val like = "%" + q.lowercase() + "%"
-            repeat(5) { args.add(like) }
+            repeat(6) { args.add(like) }
         }
         val sql = StringBuilder(
             "SELECT COUNT(DISTINCT o.id), COALESCE(SUM(o.total_amount), 0), " +
@@ -720,6 +720,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                     .replace("o.phone", "o2.phone")
                     .replace("o.address", "o2.address")
                     .replace("o.zalo_id", "o2.zalo_id")
+                    .replace("o.items_text", "o2.items_text")
             )
         }
         sql.append("), 0) FROM $T_ORD o")
@@ -790,9 +791,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         val q = search?.trim().orEmpty()
         if (q.isNotEmpty()) {
             if (where.isNotEmpty()) where.append(" AND ")
-            where.append("(LOWER(sender_name) LIKE ? OR LOWER(conv_name) LIKE ? OR LOWER(phone) LIKE ? OR LOWER(address) LIKE ? OR LOWER(COALESCE(zalo_id,'')) LIKE ?)")
+            where.append("(LOWER(sender_name) LIKE ? OR LOWER(conv_name) LIKE ? OR LOWER(phone) LIKE ? OR LOWER(address) LIKE ? OR LOWER(COALESCE(zalo_id,'')) LIKE ? OR LOWER(COALESCE(items_text,'')) LIKE ?)")
             val like = "%" + q.lowercase() + "%"
-            repeat(5) { args.add(like) }
+            repeat(6) { args.add(like) }
         }
         val sql = StringBuilder("SELECT order_date, COUNT(*) FROM $T_ORD")
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)

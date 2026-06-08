@@ -128,4 +128,59 @@ object AppPrefs {
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_COPY_WITH_PRICES, withPrices).apply()
     }
+
+    // ---- AI provider ----
+    const val AI_CLAUDE = "CLAUDE"
+    const val AI_OPENROUTER = "OPENROUTER"
+    const val AI_OPENAI = "OPENAI"
+
+    const val DEFAULT_MODEL_CLAUDE = "claude-haiku-4-5-20251001"
+    const val DEFAULT_MODEL_OPENROUTER = "openai/gpt-5-mini"
+    const val DEFAULT_MODEL_OPENAI = "gpt-5-mini"
+
+    private const val KEY_AI_PROVIDER = "ai_provider"
+
+    fun getAiProvider(ctx: Context): String =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .getString(KEY_AI_PROVIDER, AI_CLAUDE) ?: AI_CLAUDE
+
+    fun setAiProvider(ctx: Context, provider: String) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .edit().putString(KEY_AI_PROVIDER, provider).apply()
+    }
+
+    fun defaultModelOf(provider: String): String = when (provider) {
+        AI_OPENROUTER -> DEFAULT_MODEL_OPENROUTER
+        AI_OPENAI -> DEFAULT_MODEL_OPENAI
+        else -> DEFAULT_MODEL_CLAUDE
+    }
+
+    fun providerLabel(provider: String): String = when (provider) {
+        AI_OPENROUTER -> "OpenRouter"
+        AI_OPENAI -> "OpenAI"
+        else -> "Claude"
+    }
+
+    private fun modelKey(provider: String) = "ai_model_${provider.lowercase()}"
+    private fun apiKeyKey(provider: String) = "ai_key_${provider.lowercase()}"
+
+    fun getAiModel(ctx: Context, provider: String): String {
+        val v = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .getString(modelKey(provider), null)
+        return if (v.isNullOrBlank()) defaultModelOf(provider) else v
+    }
+
+    fun setAiModel(ctx: Context, provider: String, model: String) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .edit().putString(modelKey(provider), model.trim()).apply()
+    }
+
+    fun getAiKey(ctx: Context, provider: String): String =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .getString(apiKeyKey(provider), "") ?: ""
+
+    fun setAiKey(ctx: Context, provider: String, key: String) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .edit().putString(apiKeyKey(provider), key.trim()).apply()
+    }
 }

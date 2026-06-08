@@ -326,7 +326,7 @@
                 android:background="@drawable/bg_input_field"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
-                android:hint="Tên / SĐT / địa chỉ"
+                android:hint="Tên / SĐT / địa chỉ / món"
                 android:textSize="14sp"
                 android:textColor="#212121"
                 android:textColorHint="#90A4AE"

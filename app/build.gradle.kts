@@ -11,6 +11,7 @@ val localProps = Properties().apply {
 }
 val anthropicKey: String = localProps.getProperty("ANTHROPIC_API_KEY", "")
 val openrouterKey: String = localProps.getProperty("OPENROUTER_API_KEY", "")
+val openaiKey: String = localProps.getProperty("OPENAI_API_KEY", "")
 
 android {
     namespace = "com.autoorder"
@@ -24,6 +25,7 @@ android {
         versionName = "0.1.0"
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "OPENROUTER_API_KEY", "\"$openrouterKey\"")
+        buildConfigField("String", "OPENAI_API_KEY", "\"$openaiKey\"")
     }
 
     buildTypes {
