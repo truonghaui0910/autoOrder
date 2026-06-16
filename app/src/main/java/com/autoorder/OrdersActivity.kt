@@ -48,6 +48,7 @@ class OrdersActivity : AppCompatActivity() {
     private lateinit var statOrders: TextView
     private lateinit var statRevenue: TextView
     private lateinit var statItems: TextView
+    private lateinit var revenueByCategory: LinearLayout
     private lateinit var emptyView: TextView
     private lateinit var list: RecyclerView
 
@@ -108,6 +109,7 @@ class OrdersActivity : AppCompatActivity() {
         statOrders = findViewById(R.id.statOrders)
         statRevenue = findViewById(R.id.statRevenue)
         statItems = findViewById(R.id.statItems)
+        revenueByCategory = findViewById(R.id.revenueByCategory)
         emptyView = findViewById(R.id.emptyView)
         list = findViewById(R.id.list)
         list.layoutManager = LinearLayoutManager(this)
@@ -446,6 +448,7 @@ class OrdersActivity : AppCompatActivity() {
         statRevenue.text = priceFormat.format(s.totalRevenue) + "₫"
         val q = s.totalItems
         statItems.text = if (q == q.toLong().toDouble()) q.toLong().toString() else q.toString()
+        renderRevenueByCategory(db.revenueByCategory(from, to, paid, search), s.totalRevenue)
 
         if (::chart.isInitialized && chartMode) {
             list.visibility = View.GONE
@@ -496,6 +499,87 @@ class OrdersActivity : AppCompatActivity() {
                 emptyView.text = "Chưa có khách hàng nào trong khoảng đã chọn"
                 emptyView.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
             }
+        }
+    }
+
+    private fun renderRevenueByCategory(rows: List<Pair<String, Long>>, totalRevenue: Long) {
+        revenueByCategory.removeAllViews()
+        if (rows.isEmpty() || totalRevenue <= 0) {
+            revenueByCategory.visibility = View.GONE
+            return
+        }
+        revenueByCategory.visibility = View.VISIBLE
+        val density = resources.displayMetrics.density
+        val palette = intArrayOf(
+            0xFF1E88E5.toInt(), 0xFF43A047.toInt(), 0xFFFB8C00.toInt(),
+            0xFF8E24AA.toInt(), 0xFFE53935.toInt(), 0xFF00897B.toInt(),
+            0xFF6D4C41.toInt(), 0xFF3949AB.toInt()
+        )
+        val divider = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, (1 * density).toInt()
+            ).apply { topMargin = (2 * density).toInt(); bottomMargin = (6 * density).toInt() }
+            setBackgroundColor(0xFFECEFF1.toInt())
+        }
+        revenueByCategory.addView(divider)
+
+        rows.forEachIndexed { idx, (cat, rev) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (5 * density).toInt() }
+            }
+            val color = palette[idx % palette.size]
+            val dot = View(this).apply {
+                val dp10 = (10 * density).toInt()
+                layoutParams = LinearLayout.LayoutParams(dp10, dp10).apply {
+                    marginEnd = (8 * density).toInt()
+                }
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(color)
+                }
+            }
+            val pct = if (totalRevenue > 0) (rev * 100.0 / totalRevenue) else 0.0
+            val pctStr = if (pct >= 10) String.format("%.0f%%", pct) else String.format("%.1f%%", pct)
+            val name = TextView(this).apply {
+                text = cat
+                textSize = 13f
+                setTextColor(0xFF37474F.toInt())
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                )
+            }
+            val pctView = TextView(this).apply {
+                text = pctStr
+                textSize = 11f
+                setTextColor(0xFF90A4AE.toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = (10 * density).toInt() }
+            }
+            val amount = TextView(this).apply {
+                text = priceFormat.format(rev) + "₫"
+                textSize = 14f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(color)
+                gravity = android.view.Gravity.END
+                maxLines = 1
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            row.addView(dot)
+            row.addView(name)
+            row.addView(pctView)
+            row.addView(amount)
+            revenueByCategory.addView(row)
         }
     }
 

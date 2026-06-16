@@ -771,6 +771,48 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         return out
     }
 
+    fun revenueByCategory(
+        fromDate: String?,
+        toDate: String?,
+        paid: Boolean? = null,
+        search: String? = null
+    ): List<Pair<String, Long>> {
+        val where = StringBuilder()
+        val args = ArrayList<String>()
+        if (fromDate != null) { where.append("o.order_date >= ?"); args.add(fromDate) }
+        if (toDate != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("o.order_date <= ?"); args.add(toDate)
+        }
+        if (paid != null) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("o.paid = ?"); args.add(if (paid) "1" else "0")
+        }
+        val q = search?.trim().orEmpty()
+        if (q.isNotEmpty()) {
+            if (where.isNotEmpty()) where.append(" AND ")
+            where.append("(LOWER(o.sender_name) LIKE ? OR LOWER(o.conv_name) LIKE ? OR LOWER(o.phone) LIKE ? OR LOWER(o.address) LIKE ? OR LOWER(COALESCE(o.zalo_id,'')) LIKE ? OR LOWER(COALESCE(o.items_text,'')) LIKE ?)")
+            val like = "%" + q.lowercase() + "%"
+            repeat(6) { args.add(like) }
+        }
+        val sql = StringBuilder(
+            "SELECT COALESCE(NULLIF(TRIM(p.category),''), 'Khác') AS cat, " +
+                "COALESCE(SUM(oi.line_total), 0) AS rev " +
+                "FROM $T_OI oi JOIN $T_ORD o ON o.id = oi.order_id " +
+                "LEFT JOIN $T_PROD p ON p.id = oi.product_id"
+        )
+        if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
+        sql.append(" GROUP BY cat HAVING rev > 0 ORDER BY rev DESC")
+
+        val out = ArrayList<Pair<String, Long>>()
+        readableDatabase.rawQuery(sql.toString(), args.toTypedArray()).use { c ->
+            while (c.moveToNext()) {
+                out.add((c.getString(0) ?: "Khác") to c.getLong(1))
+            }
+        }
+        return out
+    }
+
     fun ordersPerDay(
         fromDate: String?,
         toDate: String?,
@@ -826,11 +868,12 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 "MAX(CASE WHEN TRIM(COALESCE(sender_name,''))<>'' THEN sender_name " +
                 "WHEN TRIM(COALESCE(conv_name,''))<>'' THEN conv_name ELSE '' END) AS name, " +
                 "MAX(COALESCE(phone,'')) AS ph, " +
-                "COUNT(*) AS oc, COALESCE(SUM(total_amount),0) AS rev " +
+                "COUNT(*) AS oc, COALESCE(SUM(total_amount),0) AS rev, " +
+                "MAX(created_at) AS last_at " +
                 "FROM $T_ORD"
         )
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
-        sql.append(" GROUP BY gkey ORDER BY rev DESC, oc DESC LIMIT ").append(limit)
+        sql.append(" GROUP BY gkey ORDER BY oc DESC, last_at DESC LIMIT ").append(limit)
 
         val out = ArrayList<CustomerStat>()
         readableDatabase.rawQuery(sql.toString(), args.toTypedArray()).use { c ->

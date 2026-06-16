@@ -364,14 +364,28 @@
 
             <TextView
                 android:id="@+id/statRevenue"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
+                android:gravity="center_horizontal"
                 android:text="0₫"
-                android:textSize="28sp"
+                android:textSize="26sp"
                 android:textStyle="bold"
-                android:textColor="#1E88E5" />
+                android:textColor="#1E88E5"
+                android:singleLine="true"
+                app:autoSizeTextType="uniform"
+                app:autoSizeMinTextSize="16sp"
+                app:autoSizeMaxTextSize="26sp"
+                app:autoSizeStepGranularity="1sp" />
         </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/revenueByCategory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="10dp"
+            android:visibility="gone" />
 
         <View
             android:layout_width="match_parent"
