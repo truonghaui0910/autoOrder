@@ -1105,46 +1105,88 @@ class ChatWebActivity : AppCompatActivity() {
                         zaloId = ord.zaloId,
                         orderCode = OrderRecord.makeCode(ord.zaloId, orderDate, total)
                     )
-                    ioExecutor.execute {
-                        val res = runCatching {
-                            val r = ShopDb(this).insertOrderWithDedup(record, ord.items)
-                            runCatching { ShopDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address) }
-                            r
+                    val proceedInsert: () -> Unit = {
+                        ioExecutor.execute {
+                            val res = runCatching {
+                                val r = ShopDb(this).insertOrderWithDedup(record, ord.items)
+                                runCatching { ShopDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address) }
+                                r
+                            }
+                            mainHandler.post {
+                                try {
+                                    res.onSuccess { (id, isNew) ->
+                                        savedIndices.add(idx)
+                                        val paidNow = if (isNew) false else
+                                            runCatching { ShopDb(this).getOrderPaidByCode(record.orderCode)?.second }
+                                                .getOrNull() ?: false
+                                        savedOrderInfo[idx] = id to paidNow
+                                        if (isNew) {
+                                            showSuccessToast("Đã lưu đơn #$id (${record.orderCode})")
+                                        } else {
+                                            showErrorToast("Đơn đã tồn tại #$id (${record.orderCode})")
+                                        }
+                                        runCatching { OrderExtractor.onOrderSaved?.invoke() }
+                                    }.onFailure { e ->
+                                        Log.e(TAG, "save fail idx=$idx", e)
+                                        saveFailed++
+                                        showErrorToast("Lỗi lưu đơn #$idx: ${e.message ?: "?"}")
+                                    }
+                                } finally {
+                                    saveDone++
+                                    Log.d(TAG, "save progress $saveDone/$saveTotal (failed=$saveFailed)")
+                                    if (saveDone >= saveTotal) {
+                                        val ok = saveDone - saveFailed
+                                        if (saveFailed > 0) {
+                                            showErrorToast("Đã lưu $ok/$saveDone đơn · $saveFailed lỗi")
+                                        } else if (saveDone > 1) {
+                                            showSuccessToast("Đã lưu xong $saveDone đơn")
+                                        }
+                                        saveTotal = 0
+                                        saveDone = 0
+                                        saveFailed = 0
+                                    }
+                                    rerender()
+                                }
+                            }
                         }
-                        mainHandler.post {
-                            try {
-                                res.onSuccess { (id, isNew) ->
-                                    savedIndices.add(idx)
-                                    val paidNow = if (isNew) false else
-                                        runCatching { ShopDb(this).getOrderPaidByCode(record.orderCode)?.second }
-                                            .getOrNull() ?: false
-                                    savedOrderInfo[idx] = id to paidNow
-                                    if (isNew) {
-                                        showSuccessToast("Đã lưu đơn #$id (${record.orderCode})")
-                                    } else {
-                                        showErrorToast("Đơn đã tồn tại #$id (${record.orderCode})")
-                                    }
-                                    runCatching { OrderExtractor.onOrderSaved?.invoke() }
-                                }.onFailure { e ->
-                                    Log.e(TAG, "save fail idx=$idx", e)
-                                    saveFailed++
-                                    showErrorToast("Lỗi lưu đơn #$idx: ${e.message ?: "?"}")
+                    }
+
+                    val phoneForCheck = record.phone
+                    if (phoneForCheck.isBlank()) {
+                        proceedInsert()
+                    } else {
+                        ioExecutor.execute {
+                            val dups = runCatching {
+                                ShopDb(this).findOrdersByPhoneOnDate(phoneForCheck, orderDate)
+                            }.getOrElse { emptyList() }
+                            mainHandler.post {
+                                if (dups.isEmpty()) {
+                                    proceedInsert()
+                                } else {
+                                    DuplicateOrderDialog.show(
+                                        ctx = this,
+                                        newCustomerName = record.senderName,
+                                        newPhone = phoneForCheck,
+                                        existing = dups,
+                                        onConfirm = { proceedInsert() },
+                                        onCancel = {
+                                            saveTotal--
+                                            updateSaveButton()
+                                            if (saveTotal > 0 && saveDone >= saveTotal) {
+                                                val ok = saveDone - saveFailed
+                                                if (saveFailed > 0) {
+                                                    showErrorToast("Đã lưu $ok/$saveDone đơn · $saveFailed lỗi")
+                                                } else if (saveDone > 1) {
+                                                    showSuccessToast("Đã lưu xong $saveDone đơn")
+                                                }
+                                                saveTotal = 0
+                                                saveDone = 0
+                                                saveFailed = 0
+                                            }
+                                            rerender()
+                                        }
+                                    )
                                 }
-                            } finally {
-                                saveDone++
-                                Log.d(TAG, "save progress $saveDone/$saveTotal (failed=$saveFailed)")
-                                if (saveDone >= saveTotal) {
-                                    val ok = saveDone - saveFailed
-                                    if (saveFailed > 0) {
-                                        showErrorToast("Đã lưu $ok/$saveDone đơn · $saveFailed lỗi")
-                                    } else if (saveDone > 1) {
-                                        showSuccessToast("Đã lưu xong $saveDone đơn")
-                                    }
-                                    saveTotal = 0
-                                    saveDone = 0
-                                    saveFailed = 0
-                                }
-                                rerender()
                             }
                         }
                     }

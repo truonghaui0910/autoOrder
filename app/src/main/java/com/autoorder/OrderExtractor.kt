@@ -1550,27 +1550,48 @@ object OrderExtractor {
                 zaloId = animId,
                 orderCode = OrderRecord.makeCode(animId, orderDate, total)
             )
-            val newId = runCatching { ShopDb(ctx).insertOrderWithDedup(record, validItems) }
-            newId.onSuccess { (id, isNew) ->
-                val msg = if (isNew) "Đã lưu đơn #$id & copy vào clipboard"
-                          else "Đơn đã tồn tại (#$id). Đã copy vào clipboard"
-                Log.i(TAG, "ORDER ${if (isNew) "saved" else "duplicate"} id=$id code=${record.orderCode} total=${record.totalAmount} items=${validItems.size}")
-                android.widget.Toast.makeText(
-                    ctx, msg, android.widget.Toast.LENGTH_SHORT
-                ).show()
-                pendingPeer = null
-                pendingAnimId = null
-                pendingOrder = null
-                dialog.dismiss()
-                runCatching { onOrderSaved?.invoke() }
-            }.onFailure {
-                Log.e(TAG, "save order fail", it)
-                btnSave.isEnabled = true
-                AlertDialog.Builder(ctx)
-                    .setTitle("Lỗi lưu đơn")
-                    .setMessage(it.message ?: "Unknown")
-                    .setPositiveButton("OK", null)
-                    .show()
+
+            val doSave: () -> Unit = {
+                val newId = runCatching { ShopDb(ctx).insertOrderWithDedup(record, validItems) }
+                newId.onSuccess { (id, isNew) ->
+                    val msg = if (isNew) "Đã lưu đơn #$id & copy vào clipboard"
+                              else "Đơn đã tồn tại (#$id). Đã copy vào clipboard"
+                    Log.i(TAG, "ORDER ${if (isNew) "saved" else "duplicate"} id=$id code=${record.orderCode} total=${record.totalAmount} items=${validItems.size}")
+                    android.widget.Toast.makeText(
+                        ctx, msg, android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    pendingPeer = null
+                    pendingAnimId = null
+                    pendingOrder = null
+                    dialog.dismiss()
+                    runCatching { onOrderSaved?.invoke() }
+                }.onFailure {
+                    Log.e(TAG, "save order fail", it)
+                    btnSave.isEnabled = true
+                    AlertDialog.Builder(ctx)
+                        .setTitle("Lỗi lưu đơn")
+                        .setMessage(it.message ?: "Unknown")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+
+            val phoneForCheck = record.phone
+            val duplicates = if (phoneForCheck.isNotBlank())
+                runCatching { ShopDb(ctx).findOrdersByPhoneOnDate(phoneForCheck, orderDate) }
+                    .getOrElse { emptyList() }
+            else emptyList()
+            if (duplicates.isNotEmpty()) {
+                DuplicateOrderDialog.show(
+                    ctx = ctx,
+                    newCustomerName = record.senderName,
+                    newPhone = phoneForCheck,
+                    existing = duplicates,
+                    onConfirm = { doSave() },
+                    onCancel = { btnSave.isEnabled = true }
+                )
+            } else {
+                doSave()
             }
         }
 

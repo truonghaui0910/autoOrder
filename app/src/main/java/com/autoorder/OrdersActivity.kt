@@ -1059,7 +1059,7 @@ class OrdersActivity : AppCompatActivity() {
                 itemsText = itemsText,
                 totalAmount = total,
                 paid = paidState[0],
-                orderCode = OrderRecord.makeCode(o.zaloId, o.orderDate, total)
+                orderCode = o.orderCode
             )
             runCatching { db.updateOrder(o.id, updated, validItems) }
                 .onSuccess {

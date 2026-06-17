@@ -26,6 +26,17 @@ data class OrderItem(
     val lineTotal: Long get() = Math.round(quantity * unitPrice)
 }
 
+data class DuplicateOrderInfo(
+    val id: Long,
+    val createdAt: Long,
+    val senderName: String,
+    val convName: String,
+    val phone: String,
+    val itemsText: String,
+    val totalAmount: Long,
+    val paid: Boolean
+)
+
 data class OrderRecord(
     val id: Long = 0,
     val createdAt: Long,
@@ -997,6 +1008,38 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
             arrayOf(orderCode)
         ).use { c -> if (c.moveToFirst()) return c.getLong(0) to (c.getInt(1) == 1) }
         return null
+    }
+
+    /**
+     * Tìm các đơn cùng SĐT trong cùng ngày (theo order_date `yyyy-MM-dd`).
+     * Phone được normalize bằng TRIM. Bỏ qua nếu phone blank.
+     */
+    fun findOrdersByPhoneOnDate(phone: String, orderDate: String): List<DuplicateOrderInfo> {
+        val p = phone.trim()
+        if (p.isBlank() || orderDate.isBlank()) return emptyList()
+        val out = mutableListOf<DuplicateOrderInfo>()
+        readableDatabase.rawQuery(
+            "SELECT id, created_at, sender_name, conv_name, phone, items_text, total_amount, paid " +
+                "FROM $T_ORD WHERE TRIM(phone) = ? AND order_date = ? " +
+                "ORDER BY created_at DESC",
+            arrayOf(p, orderDate)
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    DuplicateOrderInfo(
+                        id = c.getLong(0),
+                        createdAt = c.getLong(1),
+                        senderName = c.getString(2) ?: "",
+                        convName = c.getString(3) ?: "",
+                        phone = c.getString(4) ?: "",
+                        itemsText = c.getString(5) ?: "",
+                        totalAmount = c.getLong(6),
+                        paid = c.getInt(7) == 1
+                    )
+                )
+            }
+        }
+        return out
     }
 
     /**
