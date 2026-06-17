@@ -270,9 +270,12 @@ object OrderExtractor {
         return if (filtered.isEmpty()) matches else filtered
     }
 
+    class AnalyzeCancelledException : RuntimeException("Đã huỷ phân tích")
+
     fun analyzeBatchOrders(
         ctx: Context,
         messagesJson: String,
+        cancel: java.util.concurrent.atomic.AtomicBoolean? = null,
         onProgress: ((List<BatchOrder>, Int, Int) -> Unit)? = null,
         onResult: (Result<List<BatchOrder>>) -> Unit
     ) {
@@ -294,6 +297,7 @@ object OrderExtractor {
                 var chunkIdx = 0
                 var i = 0
                 while (i < total) {
+                    if (cancel?.get() == true) throw AnalyzeCancelledException()
                     val end = minOf(i + BATCH_CHUNK_SIZE, total)
                     val chunk = JSONArray()
                     for (j in i until end) {
@@ -301,6 +305,7 @@ object OrderExtractor {
                     }
                     chunkIdx++
                     val raw = callClaudeBatch(ctx, chunk.toString(), products, productsById)
+                    if (cancel?.get() == true) throw AnalyzeCancelledException()
                     val withZalo = raw.map { o ->
                         val byName = msgDb.getZaloChatsByName(o.customerName)
                         val matches = if (byName.isEmpty() && o.phone.isNotBlank())
@@ -1551,12 +1556,24 @@ object OrderExtractor {
                 orderCode = OrderRecord.makeCode(animId, orderDate, total)
             )
 
-            val doSave: () -> Unit = {
-                val newId = runCatching { ShopDb(ctx).insertOrderWithDedup(record, validItems) }
-                newId.onSuccess { (id, isNew) ->
-                    val msg = if (isNew) "Đã lưu đơn #$id & copy vào clipboard"
-                              else "Đơn đã tồn tại (#$id). Đã copy vào clipboard"
-                    Log.i(TAG, "ORDER ${if (isNew) "saved" else "duplicate"} id=$id code=${record.orderCode} total=${record.totalAmount} items=${validItems.size}")
+            val doSave: (Long?, Boolean) -> Unit = { updateId, keepPaid ->
+                val res = runCatching {
+                    val db = ShopDb(ctx)
+                    if (updateId != null) {
+                        db.updateOrder(updateId, record.copy(paid = keepPaid), validItems)
+                        updateId to false
+                    } else {
+                        db.insertOrderWithDedup(record, validItems)
+                    }
+                }
+                res.onSuccess { (id, isNew) ->
+                    val msg = when {
+                        updateId != null -> "Đã cập nhật đơn #$id & copy vào clipboard"
+                        isNew -> "Đã lưu đơn #$id & copy vào clipboard"
+                        else -> "Đơn đã tồn tại (#$id). Đã copy vào clipboard"
+                    }
+                    val tag = if (updateId != null) "updated" else if (isNew) "saved" else "duplicate"
+                    Log.i(TAG, "ORDER $tag id=$id code=${record.orderCode} total=${record.totalAmount} items=${validItems.size}")
                     android.widget.Toast.makeText(
                         ctx, msg, android.widget.Toast.LENGTH_SHORT
                     ).show()
@@ -1587,11 +1604,15 @@ object OrderExtractor {
                     newCustomerName = record.senderName,
                     newPhone = phoneForCheck,
                     existing = duplicates,
-                    onConfirm = { doSave() },
+                    onCreateNew = { doSave(null, false) },
+                    onUpdateExisting = { oldId ->
+                        val keep = duplicates.firstOrNull { it.id == oldId }?.paid ?: false
+                        doSave(oldId, keep)
+                    },
                     onCancel = { btnSave.isEnabled = true }
                 )
             } else {
-                doSave()
+                doSave(null, false)
             }
         }
 

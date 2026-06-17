@@ -835,6 +835,8 @@ class ChatWebActivity : AppCompatActivity() {
         val btnMinimize = view.findViewById<View>(R.id.btnMinimize)
         btnAnalyze.isEnabled = false
         btnSaveAll.isEnabled = false
+        val analyzeBtnDefaultText = btnAnalyze.text?.toString() ?: "2. Phân tích"
+        var analyzeCancel: java.util.concurrent.atomic.AtomicBoolean? = null
         val tvStatus = view.findViewById<TextView>(R.id.tvStatus)
         val tvMessagesLabel = view.findViewById<TextView>(R.id.tvMessagesLabel)
         val messagesContainer = view.findViewById<android.widget.LinearLayout>(R.id.messagesContainer)
@@ -1023,8 +1025,14 @@ class ChatWebActivity : AppCompatActivity() {
                 ordersByIndex, loadingIndices, analyzedIndices, savedIndices, savedOrderInfo,
                 analyzeOne, saveOne, pickCandidate, togglePaid
             )
-            btnAnalyze.isEnabled = texts.isNotEmpty() &&
-                (texts.indices).any { it !in analyzedIndices && it !in loadingIndices }
+            if (analyzeCancel != null) {
+                btnAnalyze.text = "Huỷ phân tích"
+                btnAnalyze.isEnabled = true
+            } else {
+                btnAnalyze.text = analyzeBtnDefaultText
+                btnAnalyze.isEnabled = texts.isNotEmpty() &&
+                    (texts.indices).any { it !in analyzedIndices && it !in loadingIndices }
+            }
             btnSaveAll.isEnabled = saveTotal == 0 && ordersByIndex.values.any {
                 it.matched && it.messageIndex !in savedIndices && it.items.isNotEmpty()
             }
@@ -1105,22 +1113,31 @@ class ChatWebActivity : AppCompatActivity() {
                         zaloId = ord.zaloId,
                         orderCode = OrderRecord.makeCode(ord.zaloId, orderDate, total)
                     )
-                    val proceedInsert: () -> Unit = {
+                    val proceedSave: (Long?, Boolean) -> Unit = { updateExistingId, keepPaid ->
                         ioExecutor.execute {
                             val res = runCatching {
-                                val r = ShopDb(this).insertOrderWithDedup(record, ord.items)
-                                runCatching { ShopDb(this).markAsCustomer(ord.zaloId, ord.phone, ord.address) }
-                                r
+                                val db = ShopDb(this)
+                                val outcome: Pair<Long, Boolean> = if (updateExistingId != null) {
+                                    db.updateOrder(updateExistingId, record.copy(paid = keepPaid), ord.items)
+                                    updateExistingId to false
+                                } else {
+                                    db.insertOrderWithDedup(record, ord.items)
+                                }
+                                runCatching { db.markAsCustomer(ord.zaloId, ord.phone, ord.address) }
+                                outcome
                             }
                             mainHandler.post {
                                 try {
                                     res.onSuccess { (id, isNew) ->
                                         savedIndices.add(idx)
-                                        val paidNow = if (isNew) false else
-                                            runCatching { ShopDb(this).getOrderPaidByCode(record.orderCode)?.second }
+                                        val paidNow = if (updateExistingId != null) keepPaid
+                                            else if (isNew) false
+                                            else runCatching { ShopDb(this).getOrderPaidByCode(record.orderCode)?.second }
                                                 .getOrNull() ?: false
                                         savedOrderInfo[idx] = id to paidNow
-                                        if (isNew) {
+                                        if (updateExistingId != null) {
+                                            showSuccessToast("Đã cập nhật đơn #$id (${record.orderCode})")
+                                        } else if (isNew) {
                                             showSuccessToast("Đã lưu đơn #$id (${record.orderCode})")
                                         } else {
                                             showErrorToast("Đơn đã tồn tại #$id (${record.orderCode})")
@@ -1153,7 +1170,7 @@ class ChatWebActivity : AppCompatActivity() {
 
                     val phoneForCheck = record.phone
                     if (phoneForCheck.isBlank()) {
-                        proceedInsert()
+                        proceedSave(null, false)
                     } else {
                         ioExecutor.execute {
                             val dups = runCatching {
@@ -1161,14 +1178,18 @@ class ChatWebActivity : AppCompatActivity() {
                             }.getOrElse { emptyList() }
                             mainHandler.post {
                                 if (dups.isEmpty()) {
-                                    proceedInsert()
+                                    proceedSave(null, false)
                                 } else {
                                     DuplicateOrderDialog.show(
                                         ctx = this,
                                         newCustomerName = record.senderName,
                                         newPhone = phoneForCheck,
                                         existing = dups,
-                                        onConfirm = { proceedInsert() },
+                                        onCreateNew = { proceedSave(null, false) },
+                                        onUpdateExisting = { oldId ->
+                                            val keep = dups.firstOrNull { it.id == oldId }?.paid ?: false
+                                            proceedSave(oldId, keep)
+                                        },
                                         onCancel = {
                                             saveTotal--
                                             updateSaveButton()
@@ -1236,9 +1257,12 @@ class ChatWebActivity : AppCompatActivity() {
                         put(org.json.JSONObject().put("index", i).put("text", texts[i]))
                     }
                 }.toString()
-                btnAnalyze.isEnabled = false
+                val cancelFlag = java.util.concurrent.atomic.AtomicBoolean(false)
+                analyzeCancel = cancelFlag
+                rerender()
                 OrderExtractor.analyzeBatchOrders(
                     this, input,
+                    cancel = cancelFlag,
                     onProgress = { partial, done, totalChunks ->
                         val doneIndices = indices.take(done * 10)
                         doneIndices.forEach {
@@ -1256,14 +1280,20 @@ class ChatWebActivity : AppCompatActivity() {
                     }
                 ) { result ->
                     indices.forEach { loadingIndices.remove(it) }
+                    analyzeCancel = null
                     result.onSuccess { orders ->
                         indices.forEach { analyzedIndices.add(it) }
                         orders.forEach { ord ->
                             if (ord.messageIndex in indices) ordersByIndex[ord.messageIndex] = ord
                         }
                     }.onFailure { e ->
-                        Log.e(TAG, "analyzeBatchOrders fail", e)
-                        Toast.makeText(this, "Lỗi AI: ${e.message ?: "?"}", Toast.LENGTH_SHORT).show()
+                        if (e is OrderExtractor.AnalyzeCancelledException) {
+                            Log.i(TAG, "analyzeBatchOrders cancelled")
+                            Toast.makeText(this, "Đã huỷ phân tích", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Log.e(TAG, "analyzeBatchOrders fail", e)
+                            Toast.makeText(this, "Lỗi AI: ${e.message ?: "?"}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     rerender()
                     indices.forEach { checkAlreadySaved(it) }
@@ -1422,10 +1452,18 @@ class ChatWebActivity : AppCompatActivity() {
         }
 
         btnAnalyze.setOnClickListener {
-            val pending = (texts.indices).filter {
-                it !in analyzedIndices && it !in loadingIndices
+            val running = analyzeCancel
+            if (running != null) {
+                running.set(true)
+                btnAnalyze.isEnabled = false
+                btnAnalyze.text = "Đang huỷ..."
+                Toast.makeText(this, "Huỷ sau khi xong chunk hiện tại", Toast.LENGTH_SHORT).show()
+            } else {
+                val pending = (texts.indices).filter {
+                    it !in analyzedIndices && it !in loadingIndices
+                }
+                analyzeMany(pending)
             }
-            analyzeMany(pending)
         }
 
         btnSaveAll.setOnClickListener {

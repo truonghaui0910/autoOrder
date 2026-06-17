@@ -66,8 +66,19 @@ class OrdersAdapter(
             holder.address.visibility = View.GONE
         }
 
-        if (o.zaloId.isNotBlank()) {
-            holder.zaloId.text = "ID: ${o.zaloId}"
+        val code = if (o.orderCode.isNotBlank()) o.orderCode
+        else if (o.zaloId.isNotBlank() && o.orderDate.isNotBlank())
+            OrderRecord.makeCode(o.zaloId, o.orderDate, o.totalAmount) + " (legacy)"
+        else ""
+        val idLine = buildString {
+            if (o.zaloId.isNotBlank()) append("ID: ").append(o.zaloId)
+            if (code.isNotBlank()) {
+                if (isNotEmpty()) append(" · ")
+                append("Mã: ").append(code)
+            }
+        }
+        if (idLine.isNotEmpty()) {
+            holder.zaloId.text = idLine
             holder.zaloId.visibility = View.VISIBLE
         } else {
             holder.zaloId.visibility = View.GONE

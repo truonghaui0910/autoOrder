@@ -34,7 +34,8 @@ data class DuplicateOrderInfo(
     val phone: String,
     val itemsText: String,
     val totalAmount: Long,
-    val paid: Boolean
+    val paid: Boolean,
+    val orderCode: String
 )
 
 data class OrderRecord(
@@ -662,7 +663,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         }
         val sql = StringBuilder(
             "SELECT id, created_at, order_date, conv_name, sender_name, phone, address, " +
-                "items_text, raw_json, total_amount, note, paid, COALESCE(zalo_id,'') FROM $T_ORD"
+                "items_text, raw_json, total_amount, note, paid, COALESCE(zalo_id,''), " +
+                "COALESCE(order_code,'') FROM $T_ORD"
         )
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
         sql.append(" ORDER BY created_at DESC LIMIT ").append(limit)
@@ -684,7 +686,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                         totalAmount = c.getLong(9),
                         note = c.getString(10) ?: "",
                         paid = c.getInt(11) == 1,
-                        zaloId = c.getString(12) ?: ""
+                        zaloId = c.getString(12) ?: "",
+                        orderCode = c.getString(13) ?: ""
                     )
                 )
             }
@@ -1019,12 +1022,18 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         if (p.isBlank() || orderDate.isBlank()) return emptyList()
         val out = mutableListOf<DuplicateOrderInfo>()
         readableDatabase.rawQuery(
-            "SELECT id, created_at, sender_name, conv_name, phone, items_text, total_amount, paid " +
+            "SELECT id, created_at, sender_name, conv_name, phone, items_text, total_amount, paid, " +
+                "order_code, zalo_id, order_date " +
                 "FROM $T_ORD WHERE TRIM(phone) = ? AND order_date = ? " +
                 "ORDER BY created_at DESC",
             arrayOf(p, orderDate)
         ).use { c ->
             while (c.moveToNext()) {
+                val storedCode = c.getString(8) ?: ""
+                val zId = c.getString(9) ?: ""
+                val oDate = c.getString(10) ?: ""
+                val totalAmt = c.getLong(6)
+                val code = storedCode.ifBlank { OrderRecord.makeCode(zId, oDate, totalAmt) }
                 out.add(
                     DuplicateOrderInfo(
                         id = c.getLong(0),
@@ -1033,8 +1042,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                         convName = c.getString(3) ?: "",
                         phone = c.getString(4) ?: "",
                         itemsText = c.getString(5) ?: "",
-                        totalAmount = c.getLong(6),
-                        paid = c.getInt(7) == 1
+                        totalAmount = totalAmt,
+                        paid = c.getInt(7) == 1,
+                        orderCode = code
                     )
                 )
             }
