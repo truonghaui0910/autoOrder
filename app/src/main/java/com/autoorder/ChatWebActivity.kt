@@ -258,6 +258,8 @@ class ChatWebActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_chat_web)
 
+        runCatching { deleteDatabase("autoorder.db") }
+
         liveInstance = java.lang.ref.WeakReference(this)
         webView = findViewById(R.id.webView)
         counter = findViewById(R.id.counter)

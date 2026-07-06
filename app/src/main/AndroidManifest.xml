@@ -32,12 +32,6 @@
         </activity>
 
         <activity
-            android:name=".MessagesActivity"
-            android:exported="false"
-            android:label="Tin nhắn đã lưu"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-
-        <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:label="Cài đặt"

@@ -8,7 +8,7 @@ Tài liệu mô tả tổng quan các chức năng hiện có của app Android 
 
 ## 1. Bản đồ màn hình
 
-App có 6 Activity (xem [AndroidManifest.xml](../app/src/main/AndroidManifest.xml)) + 1 foreground service:
+App có 6 Activity (xem [AndroidManifest.xml](../app/src/main/AndroidManifest.xml)) + 1 foreground service. Tin nhắn thô không còn được lưu bền vững — observer chỉ đẩy vào pipeline chốt đơn / notifier rồi bỏ.
 
 | Activity | Vai trò |
 |---|---|
@@ -17,7 +17,6 @@ App có 6 Activity (xem [AndroidManifest.xml](../app/src/main/AndroidManifest.xm
 | [ProductsActivity](../app/src/main/java/com/autoorder/ProductsActivity.kt) | Quản lý menu/sản phẩm (CRUD, sắp xếp, active/inactive). |
 | [ZaloChatsActivity](../app/src/main/java/com/autoorder/ZaloChatsActivity.kt) | Danh sách chat Zalo đã nhận diện, gắn tên/nhãn riêng. |
 | [BankAccountsActivity](../app/src/main/java/com/autoorder/BankAccountsActivity.kt) | Quản lý tài khoản nhận tiền dùng để sinh QR VietQR. |
-| [MessagesActivity](../app/src/main/java/com/autoorder/MessagesActivity.kt) | List tin nhắn thô đã capture từ Zalo (debug / lịch sử). |
 | [SettingsActivity](../app/src/main/java/com/autoorder/SettingsActivity.kt) | Cài đặt: AI provider/key, auto-sync, view mode, export DB, các shortcut. |
 | [WebMonitorService](../app/src/main/java/com/autoorder/WebMonitorService.kt) | Foreground service `dataSync` giữ WebView sống để nhận tin khi app ở background. |
 
@@ -30,7 +29,6 @@ Cốt lõi vẫn như mô tả trong [CLAUDE.md](../CLAUDE.md), nhưng đã tác
 - [ZaloObserverJs.kt](../app/src/main/java/com/autoorder/ZaloObserverJs.kt) — tập trung toàn bộ script inject (MutationObserver + classifier 1-1 / group / My Documents).
 - [ZaloTimeParser.kt](../app/src/main/java/com/autoorder/ZaloTimeParser.kt) — parse "Vài giây", "2 giờ", "Hôm qua", "12:34"… về epoch ms để sắp xếp.
 - [NewMsgNotifier.kt](../app/src/main/java/com/autoorder/NewMsgNotifier.kt) — emit notification khi có tin mới (kênh `POST_NOTIFICATIONS`).
-- [MessagesDb.kt](../app/src/main/java/com/autoorder/MessagesDb.kt) — vẫn dùng SQLite riêng (`autoorder.db`) cho tin nhắn thô, schema y nguyên CLAUDE.md.
 
 Bridge JS ↔ Kotlin: `AutoOrderBridge.onNewMessage(animId, name, preview, timeText)` và `onDump(...)` cho nút Quét.
 
@@ -157,11 +155,9 @@ Các nhóm chính:
 
 Index quan trọng: `orders(order_date)`, `orders(phone)`, `orders(zalo_id)`, `UNIQUE order_code`.
 
-Tin nhắn thô vẫn ở DB tách rời `autoorder.db` ([MessagesDb.kt](../app/src/main/java/com/autoorder/MessagesDb.kt)).
+Path: `/data/data/com.autoorder/databases/shop.db`.
 
-Path:
-- `/data/data/com.autoorder/databases/shop.db`
-- `/data/data/com.autoorder/databases/autoorder.db`
+File `autoorder.db` của bản cũ (tin nhắn thô) đã bỏ; `ChatWebActivity.onCreate` gọi `deleteDatabase("autoorder.db")` để dọn khi user update APK.
 
 ---
 
@@ -184,7 +180,7 @@ Path:
 
 ## 12. Luồng end-to-end của 1 đơn
 
-1. Khách nhắn vào Zalo → `ChatWebActivity` WebView nhận → observer JS bắn `onNewMessage` → lưu vào `messages` ([MessagesDb](../app/src/main/java/com/autoorder/MessagesDb.kt)) → push notification ([NewMsgNotifier](../app/src/main/java/com/autoorder/NewMsgNotifier.kt)).
+1. Khách nhắn vào Zalo → `ChatWebActivity` WebView nhận → observer JS bắn `onNewMessage` → push notification ([NewMsgNotifier](../app/src/main/java/com/autoorder/NewMsgNotifier.kt)) và cập nhật `zalo_chats` trong [ShopDb](../app/src/main/java/com/autoorder/ShopDb.kt).
 2. User mở conv trong app, bấm **Chốt đơn** → mở `dialog_checkout.xml`.
 3. App gom các tin gần nhất của peer → [OrderExtractor](../app/src/main/java/com/autoorder/OrderExtractor.kt) gọi AI → trả JSON đơn.
 4. User review/sửa → `ShopDb.insertOrder(...)` ghi `orders` + `order_items`, sinh `order_code` duy nhất.

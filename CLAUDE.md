@@ -11,12 +11,11 @@ App Android đọc tin nhắn 1-1 mới đến trên Zalo Web (`chat.zalo.me`) q
 
 ## Kiến trúc
 
-App có **2 Activity**, không có service/overlay (đã bỏ phần bong bóng nổi):
+Xem [docs/FEATURES.md](docs/FEATURES.md) cho bản đồ Activity đầy đủ. Bản mô tả này tập trung phần capture Zalo:
 
-- **`ChatWebActivity`** (launcher): nhúng `chat.zalo.me` trong WebView desktop UA + `setInitialScale(25)` + viewport meta `width=1400` để Zalo render layout 3 cột đầy đủ. Inject JS observer bắt tin mới.
-- **`MessagesActivity`**: danh sách tin từ DB, sắp xếp `captured_at DESC`.
+- **`ChatWebActivity`** (launcher): nhúng `chat.zalo.me` trong WebView desktop UA + `setInitialScale(25)` + viewport meta `width=1400` để Zalo render layout 3 cột đầy đủ. Inject JS observer bắt tin mới, đẩy vào pipeline chốt đơn / notifier — **không lưu tin nhắn thô xuống DB nữa** (bảng `messages` cũ đã bỏ).
 
-Cả 2 dùng chung `bottom_bar.xml` qua `<include>`. Bar có 5 mục: Chat / Tải lại / Quét / Tin (counter) / DB.
+Bottom bar dùng chung qua `bottom_bar.xml` (`<include>`).
 
 ## Cách bắt tin mới (JS injection)
 
@@ -51,35 +50,17 @@ Inject vào WebView sau `onPageFinished`:
 - Group bị bỏ hoàn toàn (theo yêu cầu user).
 - Đăng nhập Zalo trong WebView là phiên riêng, không share cookie với Chrome.
 
-## DB schema (SQLite, version 2, drop & recreate khi upgrade)
+## DB
 
-`messages` table:
+Toàn bộ dữ liệu nghiệp vụ nằm ở `shop.db` — xem [ShopDb.kt](app/src/main/java/com/autoorder/ShopDb.kt) và bảng ở [docs/FEATURES.md §9](docs/FEATURES.md). Path: `/data/data/com.autoorder/databases/shop.db`.
 
-| col           | type    | ghi chú                                              |
-|---------------|---------|------------------------------------------------------|
-| id            | INT PK  | autoinc                                              |
-| captured_at   | INT     | epoch ms khi lưu                                     |
-| kind          | TEXT    | `incoming` / `message` / `preview` / dump categories |
-| conv_name     | TEXT    | tên hội thoại (cho preview = chính tên peer)         |
-| sender_name   | TEXT    | tên người gửi (đã parse từ "Tên: ..." nếu có)        |
-| content       | TEXT    | nội dung đã strip prefix tên                         |
-| time_text     | TEXT    | chuỗi thời gian Zalo hiển thị (vd "Vài giây")        |
-| is_self       | INT     | 1 nếu mình gửi                                       |
-| css_class     | TEXT    | debug                                                |
-| content_hash  | TEXT    | hash để dedup                                        |
-
-Index: `captured_at`, `content_hash`, `kind`.
-
-DB path: `/data/data/com.autoorder/databases/autoorder.db`.
+File `autoorder.db` của bản cũ đã bỏ; [ChatWebActivity](app/src/main/java/com/autoorder/ChatWebActivity.kt) gọi `deleteDatabase("autoorder.db")` trong `onCreate` để dọn khi user update APK.
 
 ## Files quan trọng
 
 - [ChatWebActivity.kt](app/src/main/java/com/autoorder/ChatWebActivity.kt) — WebView host + JS observer + JsBridge (`onNewMessage`, `onMessage`, `onDump`).
-- [MessagesActivity.kt](app/src/main/java/com/autoorder/MessagesActivity.kt) — list view DB, refresh khi `onResume`.
-- [MessagesAdapter.kt](app/src/main/java/com/autoorder/MessagesAdapter.kt) — RecyclerView adapter.
-- [MessagesDb.kt](app/src/main/java/com/autoorder/MessagesDb.kt) — `SQLiteOpenHelper` + `insert()` + `queryAll()`.
-- [MessageRow.kt](app/src/main/java/com/autoorder/MessageRow.kt) — data class.
-- [bottom_bar.xml](app/src/main/res/layout/bottom_bar.xml) — bar dùng chung 2 activity.
+- [ShopDb.kt](app/src/main/java/com/autoorder/ShopDb.kt) — `SQLiteOpenHelper` cho `shop.db` (products / orders / order_items / zalo_chats).
+- [bottom_bar.xml](app/src/main/res/layout/bottom_bar.xml) — bar dùng chung các activity.
 
 ## Đã quan sát từ DOM thật của Zalo Web
 
@@ -110,7 +91,7 @@ DB path: `/data/data/com.autoorder/databases/autoorder.db`.
 
 ```powershell
 # Xem DB
-adb shell "run-as com.autoorder sqlite3 /data/data/com.autoorder/databases/autoorder.db 'SELECT id, datetime(captured_at/1000,\"unixepoch\",\"+7 hours\") t, sender_name, substr(content,1,80) FROM messages ORDER BY id DESC LIMIT 30;'"
+adb shell "run-as com.autoorder sqlite3 /data/data/com.autoorder/databases/shop.db 'SELECT id, order_code, order_date, total, paid FROM orders ORDER BY id DESC LIMIT 30;'"
 
 # Wireless ADB connect lần đầu (sau khi cắm USB)
 adb tcpip 5555

@@ -138,27 +138,13 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         val result = runCatching {
-            // Checkpoint WAL để dồn về file .db chính cho cả 2 DB
-            MessagesDb(this).use { h ->
-                h.writableDatabase.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
-            }
             ShopDb(this).use { h ->
                 h.writableDatabase.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
             }
             val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val targets = listOf(
-                MessagesDb.DB_NAME to "autoorder_$ts.db",
-                ShopDb.DB_NAME to "shop_$ts.db"
-            )
-            val written = ArrayList<String>()
-            for ((srcName, outName) in targets) {
-                val src = getDatabasePath(srcName)
-                if (!src.exists()) continue
-                val path = writeToDownloads(src, outName)
-                written.add(path)
-            }
-            if (written.isEmpty()) throw IllegalStateException("Không tìm thấy DB nào")
-            written.joinToString("\n")
+            val src = getDatabasePath(ShopDb.DB_NAME)
+            if (!src.exists()) throw IllegalStateException("Không tìm thấy DB nào")
+            writeToDownloads(src, "shop_$ts.db")
         }
         result.onSuccess { paths ->
             Toast.makeText(this, "Đã xuất:\n$paths", Toast.LENGTH_LONG).show()
