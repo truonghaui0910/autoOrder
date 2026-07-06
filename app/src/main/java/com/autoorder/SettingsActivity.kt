@@ -7,10 +7,13 @@ import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
+import java.io.FileOutputStream
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.File
@@ -65,8 +68,14 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, OrdersActivity::class.java))
         }
         findViewById<View>(R.id.rowExportDb).setOnClickListener { exportDbToDownloads() }
+        findViewById<View>(R.id.rowImportDb).setOnClickListener { pickDbToImport() }
         findViewById<View>(R.id.rowZaloChats).setOnClickListener {
             startActivity(Intent(this, ZaloChatsActivity::class.java))
+        }
+        findViewById<TextView>(R.id.txtVersion).text =
+            "Phiên bản ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})"
+        findViewById<View>(R.id.rowCheckUpdate).setOnClickListener {
+            UpdateChecker.checkFromSettings(this)
         }
 
         findViewById<View>(R.id.btnHome).setOnClickListener {
@@ -198,6 +207,91 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         private const val REQ_EXPORT_DB = 4011
+        private const val REQ_IMPORT_DB = 4012
+    }
+
+    private fun pickDbToImport() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        runCatching { startActivityForResult(intent, REQ_IMPORT_DB) }
+            .onFailure { Toast.makeText(this, "Không mở được file picker", Toast.LENGTH_SHORT).show() }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_IMPORT_DB && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            confirmAndImportDb(uri)
+        }
+    }
+
+    private fun confirmAndImportDb(uri: Uri) {
+        val name = queryDisplayName(uri) ?: "file đã chọn"
+        AlertDialog.Builder(this)
+            .setTitle("Nhập DB?")
+            .setMessage("Sẽ GHI ĐÈ toàn bộ dữ liệu hiện tại bằng \"$name\".\nHành động không thể hoàn tác. Bạn nên xuất backup trước.")
+            .setNegativeButton("Huỷ", null)
+            .setPositiveButton("Ghi đè") { _, _ -> importDbFromUri(uri) }
+            .show()
+    }
+
+    private fun queryDisplayName(uri: Uri): String? = runCatching {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull()
+
+    private fun importDbFromUri(uri: Uri) {
+        val dbDir = getDatabasePath(ShopDb.DB_NAME).parentFile
+        val tmp = File(dbDir, "${ShopDb.DB_NAME}.import.tmp")
+
+        val result = runCatching {
+            contentResolver.openInputStream(uri).use { input ->
+                if (input == null) throw IllegalStateException("Không đọc được file")
+                FileOutputStream(tmp).use { out -> input.copyTo(out) }
+            }
+
+            // Verify SQLite header ("SQLite format 3 ")
+            tmp.inputStream().use { fis ->
+                val header = ByteArray(16)
+                val n = fis.read(header)
+                val magic = "SQLite format 3 ".toByteArray(Charsets.US_ASCII)
+                if (n != 16 || !header.contentEquals(magic)) {
+                    throw IllegalStateException("File không phải SQLite database hợp lệ")
+                }
+            }
+
+            // Close any open connections & remove side files
+            runCatching { ShopDb(this).close() }
+            val dst = getDatabasePath(ShopDb.DB_NAME)
+            listOf("$dst-journal", "$dst-wal", "$dst-shm").forEach {
+                runCatching { File(it).delete() }
+            }
+            if (dst.exists()) dst.delete()
+            if (!tmp.renameTo(dst)) {
+                // Fallback copy
+                tmp.inputStream().use { i -> FileOutputStream(dst).use { o -> i.copyTo(o) } }
+                tmp.delete()
+            }
+
+            // Sanity check: open to trigger onUpgrade if needed
+            ShopDb(this).use { it.readableDatabase.rawQuery("PRAGMA user_version", null).use { c -> c.moveToFirst() } }
+        }
+
+        tmp.takeIf { it.exists() }?.delete()
+
+        result.onSuccess {
+            refreshSummaries()
+            AlertDialog.Builder(this)
+                .setTitle("Đã nhập DB")
+                .setMessage("Nên khởi động lại app để đảm bảo mọi màn hình đọc DB mới.")
+                .setPositiveButton("OK", null)
+                .show()
+        }.onFailure { e ->
+            Toast.makeText(this, "Nhập DB lỗi: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun showAiDialog() {

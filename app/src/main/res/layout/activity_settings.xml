@@ -529,7 +529,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="Backup file autoorder.db"
+                            android:text="Backup file shop.db"
                             android:textSize="12sp"
                             android:textColor="#78909C" />
                     </LinearLayout>
@@ -539,6 +539,61 @@
                         android:layout_height="20dp"
                         android:src="@drawable/ic_chevron_right"
                         android:contentDescription="Xuất" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginStart="64dp"
+                    android:background="#ECEFF1" />
+
+                <LinearLayout
+                    android:id="@+id/rowImportDb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="14dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?android:attr/selectableItemBackground">
+
+                    <ImageView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@drawable/ic_database"
+                        android:background="@drawable/bg_icon_circle"
+                        android:padding="7dp"
+                        android:contentDescription="Import DB" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="14dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Nhập DB từ file"
+                            android:textSize="15sp"
+                            android:textColor="#212121" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Khôi phục từ file .db (ghi đè shop.db hiện tại)"
+                            android:textSize="12sp"
+                            android:textColor="#78909C" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:contentDescription="Nhập" />
                 </LinearLayout>
 
                 <View
@@ -594,6 +649,78 @@
                         android:layout_height="20dp"
                         android:src="@drawable/ic_chevron_right"
                         android:contentDescription="Mở" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginBottom="8dp"
+                android:text="Thông tin"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#607D8B"
+                android:letterSpacing="0.05" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_settings_card"
+                android:elevation="1dp">
+
+                <LinearLayout
+                    android:id="@+id/rowCheckUpdate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="14dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?android:attr/selectableItemBackground">
+
+                    <ImageView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@drawable/ic_refresh"
+                        android:background="@drawable/bg_icon_circle"
+                        android:padding="7dp"
+                        android:contentDescription="Cập nhật" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="14dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Kiểm tra cập nhật"
+                            android:textSize="15sp"
+                            android:textColor="#212121" />
+
+                        <TextView
+                            android:id="@+id/txtVersion"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textSize="12sp"
+                            android:textColor="#78909C"
+                            android:singleLine="true"
+                            android:ellipsize="end"
+                            tools:text="Phiên bản 1.2.0" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:contentDescription="Kiểm tra" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>

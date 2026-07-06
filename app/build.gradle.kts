@@ -12,6 +12,18 @@ val localProps = Properties().apply {
 val anthropicKey: String = localProps.getProperty("ANTHROPIC_API_KEY", "")
 val openrouterKey: String = localProps.getProperty("OPENROUTER_API_KEY", "")
 val openaiKey: String = localProps.getProperty("OPENAI_API_KEY", "")
+val githubToken: String = localProps.getProperty("GITHUB_TOKEN", "")
+val githubRepo: String = localProps.getProperty("GITHUB_REPO", "truonghaui0910/autoOrder")
+
+val ksPath: String = localProps.getProperty("KEYSTORE_PATH", "")
+val ksPassword: String = localProps.getProperty("KEYSTORE_PASSWORD", "")
+val ksKeyAlias: String = localProps.getProperty("KEY_ALIAS", "")
+val ksKeyPassword: String = localProps.getProperty("KEY_PASSWORD", "")
+val hasReleaseSigning = ksPath.isNotBlank() &&
+    ksPassword.isNotBlank() &&
+    ksKeyAlias.isNotBlank() &&
+    ksKeyPassword.isNotBlank() &&
+    file(ksPath).exists()
 
 android {
     namespace = "com.autoorder"
@@ -21,17 +33,38 @@ android {
         applicationId = "com.autoorder"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 5
+        versionName = "1.2.3"
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "OPENROUTER_API_KEY", "\"$openrouterKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openaiKey\"")
+        buildConfigField("String", "GITHUB_TOKEN", "\"$githubToken\"")
+        buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(ksPath)
+                storePassword = ksPassword
+                keyAlias = ksKeyAlias
+                keyPassword = ksKeyPassword
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
