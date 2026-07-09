@@ -829,7 +829,8 @@ object OrderExtractor {
     ): String {
         if (items.isEmpty()) return ""
         val sb = StringBuilder()
-        items.forEachIndexed { idx, it ->
+        val sorted = items.sortedByDescending { it.quantity }
+        sorted.forEachIndexed { idx, it ->
             if (idx > 0) sb.append('\n')
             sb.append(formatQty(it.quantity)).append(" x ").append(it.productName)
             if (it.note.isNotBlank()) sb.append(" (").append(it.note).append(")")
