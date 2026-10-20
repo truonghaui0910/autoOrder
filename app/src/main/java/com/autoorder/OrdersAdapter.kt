@@ -18,7 +18,8 @@ class OrdersAdapter(
     private var items: List<OrderRecord>,
     private val onClick: (OrderRecord) -> Unit,
     private val onTogglePaid: ((OrderRecord) -> Unit)? = null,
-    private val onCheckPayment: ((OrderRecord) -> Unit)? = null
+    private val onCheckPayment: ((OrderRecord) -> Unit)? = null,
+    private val onToggleSkipCsv: ((OrderRecord) -> Unit)? = null
 ) : RecyclerView.Adapter<OrdersAdapter.VH>() {
 
     private val priceFormat = NumberFormat.getInstance(Locale("vi", "VN"))
@@ -40,6 +41,7 @@ class OrdersAdapter(
         val preview: TextView = v.findViewById(R.id.preview)
         val address: TextView = v.findViewById(R.id.address)
         val paidIcon: ImageView = v.findViewById(R.id.paidIcon)
+        val csvIcon: ImageView = v.findViewById(R.id.csvIcon)
         val checkPaymentIcon: ImageView = v.findViewById(R.id.checkPaymentIcon)
     }
 
@@ -99,6 +101,18 @@ class OrdersAdapter(
 
         bindPaidIcon(holder.paidIcon, o.paid)
         holder.paidIcon.setOnClickListener { onTogglePaid?.invoke(o) }
+
+        // Biểu tượng file: xám là có xuất CSV, đỏ gạch chéo là đơn bị loại khỏi CSV
+        if (o.skipCsv) {
+            holder.csvIcon.setImageResource(R.drawable.ic_csv_off)
+            holder.csvIcon.setColorFilter(0xFFE53935.toInt())
+            holder.csvIcon.contentDescription = "Đơn không xuất CSV"
+        } else {
+            holder.csvIcon.setImageResource(R.drawable.ic_csv_on)
+            holder.csvIcon.setColorFilter(0xFF90A4AE.toInt())
+            holder.csvIcon.contentDescription = "Đơn có xuất CSV"
+        }
+        holder.csvIcon.setOnClickListener { onToggleSkipCsv?.invoke(o) }
 
         holder.checkPaymentIcon.setColorFilter(
             if (o.paid) 0xFF90A4AE.toInt() else 0xFF1E88E5.toInt()

@@ -54,7 +54,9 @@ data class OrderRecord(
     val note: String = "",
     val paid: Boolean = false,
     val zaloId: String = "",
-    val orderCode: String = ""
+    val orderCode: String = "",
+    /** true: đơn không đưa vào file CSV khi xuất báo cáo */
+    val skipCsv: Boolean = false
 ) {
     companion object {
         /** zaloid_yyyymmdd_totalK, ví dụ 250.000 → 250k. orderDate dạng yyyy-MM-dd. */
@@ -71,7 +73,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
 
     companion object {
         const val DB_NAME = "shop.db"
-        const val DB_VERSION = 7
+        const val DB_VERSION = 8
         const val T_PROD = "products"
         const val T_ORD = "orders"
         const val T_OI = "order_items"
@@ -115,7 +117,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 note TEXT,
                 paid INTEGER NOT NULL DEFAULT 0,
                 zalo_id TEXT,
-                order_code TEXT
+                order_code TEXT,
+                skip_csv INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent()
         )
@@ -174,6 +177,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 8) {
+            db.execSQL("ALTER TABLE $T_ORD ADD COLUMN skip_csv INTEGER NOT NULL DEFAULT 0")
+        }
         if (oldVersion < 7) {
             db.execSQL("ALTER TABLE $T_PROD ADD COLUMN unit TEXT NOT NULL DEFAULT ''")
             // Trà tính theo ly, các danh mục còn lại (ăn vặt...) tính theo suất
@@ -758,7 +764,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         val sql = StringBuilder(
             "SELECT id, created_at, order_date, conv_name, sender_name, phone, address, " +
                 "items_text, raw_json, total_amount, note, paid, COALESCE(zalo_id,''), " +
-                "COALESCE(order_code,'') FROM $T_ORD"
+                "COALESCE(order_code,''), skip_csv FROM $T_ORD"
         )
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
         sql.append(" ORDER BY created_at DESC LIMIT ").append(limit)
@@ -781,7 +787,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                         note = c.getString(10) ?: "",
                         paid = c.getInt(11) == 1,
                         zaloId = c.getString(12) ?: "",
-                        orderCode = c.getString(13) ?: ""
+                        orderCode = c.getString(13) ?: "",
+                        skipCsv = c.getInt(14) == 1
                     )
                 )
             }
@@ -1030,6 +1037,11 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
 
     fun setOrderPaid(orderId: Long, paid: Boolean) {
         val cv = ContentValues().apply { put("paid", if (paid) 1 else 0) }
+        writableDatabase.update(T_ORD, cv, "id = ?", arrayOf(orderId.toString()))
+    }
+
+    fun setOrderSkipCsv(orderId: Long, skip: Boolean) {
+        val cv = ContentValues().apply { put("skip_csv", if (skip) 1 else 0) }
         writableDatabase.update(T_ORD, cv, "id = ?", arrayOf(orderId.toString()))
     }
 

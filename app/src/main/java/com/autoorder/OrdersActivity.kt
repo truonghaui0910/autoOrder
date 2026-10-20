@@ -124,7 +124,16 @@ class OrdersActivity : AppCompatActivity() {
                 db.setOrderPaid(o.id, !o.paid)
                 refresh()
             },
-            onCheckPayment = { o -> launchCheckPayment(o) }
+            onCheckPayment = { o -> launchCheckPayment(o) },
+            onToggleSkipCsv = { o ->
+                db.setOrderSkipCsv(o.id, !o.skipCsv)
+                Toast.makeText(
+                    this,
+                    if (o.skipCsv) "Đơn sẽ được xuất CSV" else "Đơn sẽ không xuất CSV",
+                    Toast.LENGTH_SHORT
+                ).show()
+                refresh()
+            }
         )
         soldAdapter = ProductsSoldAdapter(emptyList())
         customersAdapter = CustomersAdapter(emptyList()) { c ->
@@ -1135,7 +1144,8 @@ class OrdersActivity : AppCompatActivity() {
         val (from, to) = rangeFor(period)
         val paid = paidArg()
         val search = searchArg()
-        val orders = db.queryOrders(from, to, paid, search, limit = Int.MAX_VALUE)
+        // Bỏ các đơn đã đánh dấu không xuất CSV
+        val orders = db.queryOrders(from, to, paid, search, limit = Int.MAX_VALUE).filter { !it.skipCsv }
         if (orders.isEmpty()) {
             Toast.makeText(this, "Không có đơn nào để xuất", Toast.LENGTH_SHORT).show()
             return

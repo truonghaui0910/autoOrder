@@ -33,8 +33,8 @@ android {
         applicationId = "com.autoorder"
         minSdk = 24
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.2.4"
+        versionCode = 7
+        versionName = "1.2.5"
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "OPENROUTER_API_KEY", "\"$openrouterKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openaiKey\"")
