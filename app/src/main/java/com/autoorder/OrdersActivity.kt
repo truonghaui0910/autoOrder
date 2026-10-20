@@ -89,7 +89,10 @@ class OrdersActivity : AppCompatActivity() {
     private val csvFileDateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply {
         timeZone = tz
     }
-    private val csvRowDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+    private val csvRowDateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.US).apply {
+        timeZone = tz
+    }
+    private val csvRowTimeFormat = SimpleDateFormat("HH:mm", Locale.US).apply {
         timeZone = tz
     }
 
@@ -605,7 +608,7 @@ class OrdersActivity : AppCompatActivity() {
                     val q = p.totalQty
                     val qStr = if (q == q.toLong().toDouble()) q.toLong().toString()
                     else String.format("%.1f", q)
-                    BarChartView.Bar(p.productName, q.toFloat(), qStr)
+                    BarChartView.Bar(p.productName, q.toFloat(), "$qStr ${p.unit}".trim())
                 }
                 chart.setData("Số lượng đã bán theo sản phẩm", bars)
             }
@@ -1142,39 +1145,45 @@ class OrdersActivity : AppCompatActivity() {
                 os.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
                 os.writer(Charsets.UTF_8).use { w ->
                     val header = listOf(
-                        "id", "order_code", "created_at", "order_date",
-                        "sender_name", "conv_name", "phone", "address",
-                        "items", "total_amount", "paid", "note", "zalo_id"
+                        "STT", "Mã hàng", "Tên hàng", "Thời gian", "Giờ", "Số lượng",
+                        "Đơn vị tính", "Giá", "Giá bán", "Thành tiền"
                     )
                     w.append(header.joinToString(",") { csvEscape(it) }).append("\r\n")
+                    // Giá gốc lấy theo bảng sản phẩm hiện tại, mỗi sản phẩm chỉ query một lần
+                    val productCache = HashMap<Long, Product?>()
+                    // STT tăng theo từng đơn, các món cùng một đơn dùng chung một số
+                    var stt = 0
                     for (o in orders) {
-                        val items = db.queryOrderItems(o.id)
-                        val itemsStr = items.joinToString("; ") { it ->
-                            val q = if (it.quantity == it.quantity.toLong().toDouble())
-                                it.quantity.toLong().toString()
-                            else it.quantity.toString()
-                            val base = "$q x ${it.productName}"
-                            if (it.note.isNotBlank()) "$base (${it.note})" else base
+                        stt++
+                        val date = csvRowDateFormat.format(Date(o.createdAt))
+                        val time = csvRowTimeFormat.format(Date(o.createdAt))
+                        // Mỗi món trong đơn là một dòng riêng
+                        for (item in db.queryOrderItems(o.id)) {
+                            val product = item.productId?.let { pid ->
+                                productCache.getOrPut(pid) { db.getProduct(pid) }
+                            }
+                            val qty = if (item.quantity == item.quantity.toLong().toDouble())
+                                item.quantity.toLong().toString()
+                            else item.quantity.toString()
+                            // Món thuộc nhóm trà mà tên chưa bắt đầu bằng "Trà" thì thêm vào, vd "Hũ đác cam" → "Trà hũ đác cam"
+                            val isTea = product?.category == "TRÀ"
+                            val name = if (isTea && !item.productName.trim().startsWith("trà", ignoreCase = true))
+                                "Trà " + item.productName.trim().replaceFirstChar { c -> c.lowercaseChar() }
+                            else item.productName
+                            val row = listOf(
+                                stt.toString(),
+                                product?.code.orEmpty(),
+                                name,
+                                date,
+                                time,
+                                qty,
+                                product?.unit.orEmpty(),
+                                (product?.price ?: item.unitPrice).toString(),
+                                item.unitPrice.toString(),
+                                item.lineTotal.toString()
+                            )
+                            w.append(row.joinToString(",") { csvEscape(it) }).append("\r\n")
                         }
-                        val code = o.orderCode.ifBlank {
-                            OrderRecord.makeCode(o.zaloId, o.orderDate, o.totalAmount)
-                        }
-                        val row = listOf(
-                            o.id.toString(),
-                            code,
-                            csvRowDateFormat.format(Date(o.createdAt)),
-                            o.orderDate,
-                            o.senderName,
-                            o.convName,
-                            o.phone,
-                            o.address,
-                            itemsStr,
-                            o.totalAmount.toString(),
-                            if (o.paid) "1" else "0",
-                            o.note,
-                            o.zaloId
-                        )
-                        w.append(row.joinToString(",") { csvEscape(it) }).append("\r\n")
                     }
                 }
             } ?: run {

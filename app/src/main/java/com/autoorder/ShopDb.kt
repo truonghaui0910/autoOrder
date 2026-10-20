@@ -12,7 +12,9 @@ data class Product(
     val price: Int,
     val note: String = "",
     val active: Boolean = true,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    val code: String = "",
+    val unit: String = ""
 )
 
 data class OrderItem(
@@ -69,7 +71,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
 
     companion object {
         const val DB_NAME = "shop.db"
-        const val DB_VERSION = 5
+        const val DB_VERSION = 7
         const val T_PROD = "products"
         const val T_ORD = "orders"
         const val T_OI = "order_items"
@@ -88,7 +90,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 active INTEGER NOT NULL DEFAULT 1,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
+                updated_at INTEGER NOT NULL,
+                code TEXT NOT NULL DEFAULT '',
+                unit TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent()
         )
@@ -170,6 +174,23 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 7) {
+            db.execSQL("ALTER TABLE $T_PROD ADD COLUMN unit TEXT NOT NULL DEFAULT ''")
+            // Trà tính theo ly, các danh mục còn lại (ăn vặt...) tính theo suất
+            db.execSQL("UPDATE $T_PROD SET unit = CASE WHEN category = 'TRÀ' THEN 'Ly' ELSE 'Suất' END")
+        }
+        if (oldVersion < 6) {
+            db.execSQL("ALTER TABLE $T_PROD ADD COLUMN code TEXT NOT NULL DEFAULT ''")
+            // Sinh mã cho các sản phẩm đã có, theo thứ tự id để mã trùng được đánh số ổn định
+            val products = ArrayList<Pair<Long, String>>()
+            db.rawQuery("SELECT id, name FROM $T_PROD ORDER BY id", null).use { c ->
+                while (c.moveToNext()) products.add(c.getLong(0) to (c.getString(1) ?: ""))
+            }
+            for ((id, name) in products) {
+                val cv = ContentValues().apply { put("code", makeProductCode(db, name, id)) }
+                db.update(T_PROD, cv, "id = ?", arrayOf(id.toString()))
+            }
+        }
         if (oldVersion < 2) {
             db.execSQL("ALTER TABLE $T_ORD ADD COLUMN paid INTEGER NOT NULL DEFAULT 0")
         }
@@ -512,25 +533,89 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         }
     }
 
+    /**
+     * Sinh mã hàng từ tên đầy đủ: bỏ dấu, viết hoa, các từ nối bằng "_" (vd "Trà lựu núng nính" → TRA_LUU_NUNG_NINH).
+     * Nếu mã đã có ở sản phẩm khác thì thêm số 2, 3... phía sau.
+     * excludeId là sản phẩm đang sửa, để không tự coi mình là trùng.
+     */
+    fun makeProductCode(db: SQLiteDatabase, name: String, excludeId: Long = 0): String {
+        val noAccent = java.text.Normalizer.normalize(
+            name.replace('đ', 'd').replace('Đ', 'D'), java.text.Normalizer.Form.NFD
+        ).replace(Regex("\\p{Mn}+"), "")
+        val words = noAccent.split(Regex("[^A-Za-z0-9]+")).filter { it.isNotEmpty() }
+        val base = words.joinToString("_").uppercase().ifEmpty { "SP" }
+
+        var code = base
+        var n = 1
+        while (true) {
+            val exists = db.rawQuery(
+                "SELECT 1 FROM $T_PROD WHERE code = ? AND id <> ? LIMIT 1",
+                arrayOf(code, excludeId.toString())
+            ).use { it.moveToFirst() }
+            if (!exists) return code
+            n++
+            code = base + n
+        }
+    }
+
+    /** Dùng khi thêm/sửa sản phẩm từ UI. */
+    fun makeProductCode(name: String, excludeId: Long = 0): String =
+        makeProductCode(readableDatabase, name, excludeId)
+
+    /** Đơn vị mặc định theo danh mục: trà là ly, còn lại (ăn vặt...) là suất. */
+    fun defaultUnit(category: String): String = if (category == "TRÀ") "Ly" else "Suất"
+
     private fun seedProducts(db: SQLiteDatabase) {
         val now = System.currentTimeMillis()
         data class S(val cat: String, val name: String, val price: Int, val note: String)
         val seed = listOf(
-            S("TRÀ", "Nhiệt đới", 30000, ""),
+            S("TRÀ", "Nhiệt đới", 35000, ""),
             S("TRÀ", "Dưa lưới", 35000, ""),
-            S("TRÀ", "Dâu tằm", 35000, ""),
+            S("TRÀ", "Dâu tằm", 40000, ""),
             S("TRÀ", "Atiso chua ngọt", 35000, ""),
-            S("TRÀ", "Đác cam chanh", 40000, ""),
+            S("TRÀ", "Đác cam chanh", 45000, ""),
             S("TRÀ", "Mãng cầu", 40000, ""),
-            S("TRÀ", "Mãng cầu mix dâu tằm", 40000, ""),
+            S("TRÀ", "Mãng cầu mix dâu tằm", 45000, ""),
             S("TRÀ", "Hũ đác dâu tằm", 10000, ""),
+            S("TRÀ", "Sầu Thơm", 45000, ""),
+            S("TRÀ", "Ổi hồng", 35000, ""),
+            S("TRÀ", "Thơm chanh dây", 35000, ""),
+            S("TRÀ", "Xoài chanh dây", 35000, ""),
+            S("TRÀ", "Cóc thơm", 35000, ""),
+            S("TRÀ", "Mít chanh dây", 35000, ""),
+            S("TRÀ", "Hũ đác thơm( toping)", 10000, ""),
+            S("TRÀ", "Trà lài đác thơm", 40000, ""),
+            S("TRÀ", "Trà mận", 35000, ""),
+            S("TRÀ", "Trà măng cụt chanh leo", 45000, ""),
+            S("TRÀ", "Nhãn atiso", 45000, ""),
+            S("TRÀ", "Me đác mãng cầu", 45000, ""),
+            S("TRÀ", "Đào tươi", 40000, ""),
+            S("TRÀ", "Cóc giòn", 35000, ""),
+            S("TRÀ", "Chôm chôm cam chanh", 45000, ""),
+            S("TRÀ", "Trà vải aitiso", 45000, ""),
+            S("TRÀ", "Bình bát chanh thơm", 40000, ""),
+            S("TRÀ", "Hũ đác cam", 10000, ""),
+            S("TRÀ", "cherry", 70000, ""),
+            S("TRÀ", "Dâu tây", 40000, ""),
+            S("TRÀ", "Đác dâu tằm", 45000, ""),
+            S("TRÀ", "Hồng trà quýt", 45000, ""),
+            S("TRÀ", "Trà lựu núng nính", 45000, ""),
+            S("TRÀ", "Trà lựu không thạch", 40000, ""),
+            S("TRÀ", "Trà thơm đác  dẻo", 45000, ""),
+            S("TRÀ", "Me đác đậm vị", 45000, ""),
+            S("TRÀ", "Trà nho ruby", 45000, ""),
+            S("TRÀ", "Trà má hồng", 45000, ""),
+            S("TRÀ", "Cóc cóc đác đác", 45000, ""),
             S("ĂN VẶT", "Chân gà sốt thái S", 60000, "6-7 chân"),
             S("ĂN VẶT", "Chân gà sốt thái M", 90000, "9-10 chân"),
             S("ĂN VẶT", "Chân gà sốt thái L", 130000, "13-14 chân"),
             S("ĂN VẶT", "Combo trải nghiệm chân trứng", 60000, "4-5 chân + 100g trứng"),
             S("ĂN VẶT", "Trứng non sốt thái", 50000, "250g"),
             S("ĂN VẶT", "Gà ủ muối 1/2", 150000, ""),
-            S("ĂN VẶT", "Gà ủ muối 1 con", 280000, "")
+            S("ĂN VẶT", "Gà ủ muối 1 con", 280000, ""),
+            S("ĂN VẶT", "Combo trải nghiệm chân trứng size M", 90000, ""),
+            S("ĂN VẶT", "Combo chân trứng size L", 130000, ""),
+            S("ĂN VẶT", "Trứng", 20000, "")
         )
         seed.forEachIndexed { idx, s ->
             val cv = ContentValues().apply {
@@ -540,6 +625,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                 put("note", s.note)
                 put("active", 1)
                 put("sort_order", idx)
+                put("code", makeProductCode(db, s.name))
+                put("unit", defaultUnit(s.cat))
                 put("created_at", now)
                 put("updated_at", now)
             }
@@ -549,7 +636,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
 
     fun listProducts(activeOnly: Boolean = false): List<Product> {
         val sql = StringBuilder(
-            "SELECT id, category, name, price, note, active, sort_order FROM $T_PROD"
+            "SELECT id, category, name, price, note, active, sort_order, code, unit FROM $T_PROD"
         )
         if (activeOnly) sql.append(" WHERE active = 1")
         sql.append(" ORDER BY category, sort_order, id")
@@ -564,7 +651,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                         price = c.getInt(3),
                         note = c.getString(4) ?: "",
                         active = c.getInt(5) == 1,
-                        sortOrder = c.getInt(6)
+                        sortOrder = c.getInt(6),
+                        code = c.getString(7) ?: "",
+                        unit = c.getString(8) ?: ""
                     )
                 )
             }
@@ -574,7 +663,7 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
 
     fun getProduct(id: Long): Product? {
         readableDatabase.rawQuery(
-            "SELECT id, category, name, price, note, active, sort_order FROM $T_PROD WHERE id = ?",
+            "SELECT id, category, name, price, note, active, sort_order, code, unit FROM $T_PROD WHERE id = ?",
             arrayOf(id.toString())
         ).use { c ->
             if (c.moveToFirst()) {
@@ -585,7 +674,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                     price = c.getInt(3),
                     note = c.getString(4) ?: "",
                     active = c.getInt(5) == 1,
-                    sortOrder = c.getInt(6)
+                    sortOrder = c.getInt(6),
+                    code = c.getString(7) ?: "",
+                    unit = c.getString(8) ?: ""
                 )
             }
         }
@@ -601,6 +692,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
             put("note", p.note)
             put("active", if (p.active) 1 else 0)
             put("sort_order", p.sortOrder)
+            put("code", p.code)
+            put("unit", p.unit)
             put("updated_at", now)
         }
         return if (p.id > 0) {
@@ -626,7 +719,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
         val productId: Long?,
         val productName: String,
         val totalQty: Double,
-        val totalRevenue: Long
+        val totalRevenue: Long,
+        val unit: String = ""
     )
 
     data class CustomerStat(
@@ -762,8 +856,9 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
             where.append("o.paid = ?"); args.add(if (paid) "1" else "0")
         }
         val sql = StringBuilder(
-            "SELECT oi.product_id, oi.product_name, SUM(oi.quantity), SUM(oi.line_total) " +
-                "FROM $T_OI oi JOIN $T_ORD o ON o.id = oi.order_id"
+            "SELECT oi.product_id, oi.product_name, SUM(oi.quantity), SUM(oi.line_total), COALESCE(MAX(p.unit), '') " +
+                "FROM $T_OI oi JOIN $T_ORD o ON o.id = oi.order_id " +
+                "LEFT JOIN $T_PROD p ON p.id = oi.product_id"
         )
         if (where.isNotEmpty()) sql.append(" WHERE ").append(where)
         sql.append(" GROUP BY oi.product_id, oi.product_name ORDER BY SUM(oi.line_total) DESC LIMIT ")
@@ -777,7 +872,8 @@ class ShopDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, DB_NAME, n
                         productId = if (c.isNull(0)) null else c.getLong(0),
                         productName = c.getString(1) ?: "",
                         totalQty = c.getDouble(2),
-                        totalRevenue = c.getLong(3)
+                        totalRevenue = c.getLong(3),
+                        unit = c.getString(4) ?: ""
                     )
                 )
             }

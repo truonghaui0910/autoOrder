@@ -1349,6 +1349,13 @@ object OrderExtractor {
                             }
                         }
                     }
+                    child is android.view.ViewGroup -> {
+                        child.alpha = 1f
+                        for (j in 0 until child.childCount) {
+                            val bc = child.getChildAt(j)
+                            bc.alpha = if (on && bc.id != R.id.btnSave) 0f else 1f
+                        }
+                    }
                     else -> child.alpha = if (on) 0f else 1f
                 }
             }

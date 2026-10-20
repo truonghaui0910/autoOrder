@@ -37,7 +37,7 @@ class ProductsSoldAdapter(
             p.totalQty.toLong().toString()
         else
             p.totalQty.toString()
-        holder.qty.text = "Đã bán: $qtyStr"
+        holder.qty.text = "Đã bán: $qtyStr ${p.unit}".trim()
         holder.revenue.text = priceFormat.format(p.totalRevenue) + "₫"
     }
 

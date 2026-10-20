@@ -58,9 +58,23 @@
                 android:layout_height="44dp"
                 android:layout_marginBottom="6dp" />
 
+            <TextView style="@style/OrderFieldLabel" android:text="Mã hàng" />
+            <EditText
+                android:id="@+id/etCode"
+                style="@style/OrderFieldInput"
+                android:inputType="textCapCharacters"
+                android:singleLine="true" />
+
             <TextView style="@style/OrderFieldLabel" android:text="Tên sản phẩm" />
             <EditText
                 android:id="@+id/etName"
+                style="@style/OrderFieldInput"
+                android:inputType="textCapSentences"
+                android:singleLine="true" />
+
+            <TextView style="@style/OrderFieldLabel" android:text="Đơn vị tính" />
+            <EditText
+                android:id="@+id/etUnit"
                 style="@style/OrderFieldInput"
                 android:inputType="textCapSentences"
                 android:singleLine="true" />

@@ -33,8 +33,8 @@ android {
         applicationId = "com.autoorder"
         minSdk = 24
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.2.3"
+        versionCode = 6
+        versionName = "1.2.4"
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "OPENROUTER_API_KEY", "\"$openrouterKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openaiKey\"")
@@ -49,6 +49,11 @@ android {
                 storePassword = ksPassword
                 keyAlias = ksKeyAlias
                 keyPassword = ksKeyPassword
+                // Bật cả chữ ký v1 (JAR) lẫn v2. minSdk 24 khiến AGP mặc định
+                // tắt v1, nhưng vài máy OEM (vd MTN_NX1) không chịu APK chỉ có v2
+                // và báo INSTALL_PARSE_FAILED_NO_CERTIFICATES khi cài.
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }

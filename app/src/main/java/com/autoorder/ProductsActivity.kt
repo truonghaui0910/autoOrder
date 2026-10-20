@@ -91,6 +91,8 @@ class ProductsActivity : AppCompatActivity() {
 
         val title = dialog.findViewById<TextView>(R.id.dialogTitle)
         val spCat = dialog.findViewById<Spinner>(R.id.spCategory)
+        val etCode = dialog.findViewById<EditText>(R.id.etCode)
+        val etUnit = dialog.findViewById<EditText>(R.id.etUnit)
         val etName = dialog.findViewById<EditText>(R.id.etName)
         val etPrice = dialog.findViewById<EditText>(R.id.etPrice)
         val etNote = dialog.findViewById<EditText>(R.id.etNote)
@@ -157,6 +159,8 @@ class ProductsActivity : AppCompatActivity() {
         if (existing != null) {
             title.text = "Sửa sản phẩm"
             selectCategory(existing.category)
+            etCode.setText(existing.code)
+            etUnit.setText(existing.unit)
             etName.setText(existing.name)
             etPrice.setText(existing.price.toString())
             etNote.setText(existing.note)
@@ -202,6 +206,10 @@ class ProductsActivity : AppCompatActivity() {
             val p = Product(
                 id = existing?.id ?: 0,
                 category = cat.uppercase(),
+                // Để trống mã thì tự sinh theo tên
+                code = etCode.text.toString().trim().uppercase()
+                    .ifEmpty { db.makeProductCode(name, existing?.id ?: 0) },
+                unit = etUnit.text.toString().trim().ifEmpty { db.defaultUnit(cat.uppercase()) },
                 name = name,
                 price = price,
                 note = etNote.text.toString().trim(),
